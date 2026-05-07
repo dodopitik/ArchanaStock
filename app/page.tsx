@@ -1521,22 +1521,36 @@ export default function ThriftHatInventoryApp() {
                       </div>
                       {stockView !== "list" && <StatusBadge status={hat.status} />}
                     </div>
-                    <div className={stockView === "list" ? "grid gap-2 sm:grid-cols-2" : "m-3 mt-0 grid gap-2"}>
-                      <Button variant="secondary" onClick={() => openEditModal(hat)} className={stockView === "list" ? "w-full sm:w-auto" : "h-10 w-auto px-3"}>
+                    <div className={stockView === "list" ? "grid min-w-[270px] gap-2 sm:grid-cols-3" : "m-3 mt-0 grid grid-cols-3 gap-1.5"}>
+                      <Button
+                        variant="secondary"
+                        onClick={() => openEditModal(hat)}
+                        title="Edit item"
+                        aria-label={`Edit ${hat.name}`}
+                        className={stockView === "list" ? "h-10 w-full px-3" : "h-9 w-full px-2 text-xs"}
+                      >
                         <Pencil size={16} />
-                        Edit
+                        <span className={stockView === "list" ? "" : "sr-only"}>Edit</span>
                       </Button>
-                      <Button onClick={() => setSoldModal(hat)} className={stockView === "list" ? "w-full sm:w-auto" : "h-10 w-auto px-3"}>
-                        SOLD
+                      <Button
+                        onClick={() => setSoldModal(hat)}
+                        title="Tandai SOLD"
+                        aria-label={`Tandai ${hat.name} SOLD`}
+                        className={stockView === "list" ? "h-10 w-full px-3" : "h-9 w-full px-2 text-xs"}
+                      >
+                        <CheckCircle2 size={16} />
+                        <span className={stockView === "list" ? "" : "sr-only"}>SOLD</span>
                       </Button>
                       <Button
                         variant="secondary"
                         onClick={() => void deleteHat(hat)}
                         disabled={deletingId === hat.id}
-                        className={stockView === "list" ? "w-full sm:w-auto" : "h-10 w-auto px-3"}
+                        title="Hapus item"
+                        aria-label={`Hapus ${hat.name}`}
+                        className={stockView === "list" ? "h-10 w-full px-3" : "h-9 w-full px-2 text-xs"}
                       >
                         <Trash2 size={16} />
-                        {deletingId === hat.id ? "Hapus..." : "Hapus"}
+                        <span className={stockView === "list" ? "" : "sr-only"}>{deletingId === hat.id ? "Hapus..." : "Hapus"}</span>
                       </Button>
                     </div>
                   </article>
