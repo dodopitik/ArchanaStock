@@ -578,6 +578,7 @@ export default function ThriftHatInventoryApp() {
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [cameraOpen, setCameraOpen] = useState(false);
   const [cameraError, setCameraError] = useState("");
+  const [cameraReady, setCameraReady] = useState(false);
   const galleryInputRef = useRef<HTMLInputElement>(null);
   const cameraInputRef = useRef<HTMLInputElement>(null);
   const liveVideoRef = useRef<HTMLVideoElement>(null);
@@ -726,6 +727,32 @@ export default function ThriftHatInventoryApp() {
     queueMicrotask(() => void loadHats());
   }, [currentUser, loadHats, supabase]);
 
+  useEffect(() => {
+    const video = liveVideoRef.current;
+    const stream = cameraStreamRef.current;
+
+    if (!cameraOpen || !video || !stream) return;
+
+    video.srcObject = stream;
+    const handleReady = () => setCameraReady(true);
+    video.addEventListener("loadedmetadata", handleReady);
+    video.addEventListener("canplay", handleReady);
+    video.play().catch((error) => {
+      const message = error instanceof Error ? error.message : "Preview kamera gagal diputar.";
+      setCameraError(`Preview kamera gagal diputar: ${message}`);
+    });
+
+    return () => {
+      video.removeEventListener("loadedmetadata", handleReady);
+      video.removeEventListener("canplay", handleReady);
+      video.srcObject = null;
+    };
+  }, [cameraOpen]);
+
+  useEffect(() => {
+    return () => stopRealtimeCamera();
+  }, []);
+
   function updateForm(key: keyof FormState, value: string) {
     setForm((current) => ({ ...current, [key]: value }));
   }
@@ -757,6 +784,7 @@ export default function ThriftHatInventoryApp() {
   function stopRealtimeCamera() {
     cameraStreamRef.current?.getTracks().forEach((track) => track.stop());
     cameraStreamRef.current = null;
+    setCameraReady(false);
   }
 
   function closeRealtimeCamera() {
@@ -767,6 +795,7 @@ export default function ThriftHatInventoryApp() {
 
   async function openRealtimeCamera() {
     setCameraError("");
+    setCameraReady(false);
 
     if (!navigator.mediaDevices?.getUserMedia) {
       setCameraError("Browser belum mendukung kamera realtime. Pakai opsi kamera file sebagai fallback.");
@@ -793,12 +822,6 @@ export default function ThriftHatInventoryApp() {
 
       cameraStreamRef.current = stream;
       setCameraOpen(true);
-
-      window.setTimeout(() => {
-        if (!liveVideoRef.current || cameraStreamRef.current !== stream) return;
-        liveVideoRef.current.srcObject = stream;
-        void liveVideoRef.current.play();
-      }, 0);
     } catch (error) {
       const message = error instanceof Error ? error.message : "Kamera tidak bisa dibuka.";
       setCameraError(`Kamera tidak bisa dibuka: ${message}`);
@@ -1637,9 +1660,9 @@ export default function ThriftHatInventoryApp() {
               <Button variant="secondary" onClick={closeRealtimeCamera}>
                 Batal
               </Button>
-              <Button onClick={captureRealtimePhoto}>
+              <Button onClick={captureRealtimePhoto} disabled={!cameraReady}>
                 <Camera size={16} />
-                Ambil Foto
+                {cameraReady ? "Ambil Foto" : "Menyiapkan..."}
               </Button>
             </div>
           </motion.div>
