@@ -17,6 +17,7 @@ import {
   ImagePlus,
   Grid2X2,
   Grid3X3,
+  Pencil,
   LayoutDashboard,
   List,
   LogOut,
@@ -75,6 +76,7 @@ type BulkItem = {
 };
 
 type LoginMode = "login" | "register";
+type ImageTarget = "add" | "edit";
 type ChartPoint = {
   label: string;
   value: number;
@@ -562,6 +564,8 @@ export default function ThriftHatInventoryApp() {
   const [hats, setHats] = useState<Hat[]>(initialHats);
   const [query, setQuery] = useState("");
   const [soldModal, setSoldModal] = useState<Hat | null>(null);
+  const [editModal, setEditModal] = useState<Hat | null>(null);
+  const [editForm, setEditForm] = useState<FormState>(emptyForm);
   const [soldPrice, setSoldPrice] = useState("");
   const [platform, setPlatform] = useState("Shopee");
   const [form, setForm] = useState<FormState>(emptyForm);
@@ -574,13 +578,16 @@ export default function ThriftHatInventoryApp() {
   const [dataLoading, setDataLoading] = useState(false);
   const [message, setMessage] = useState("");
   const [dbMessage, setDbMessage] = useState(isSupabaseConfigured ? "Menunggu login Supabase." : "Mode demo lokal.");
-  const [savingAction, setSavingAction] = useState<"single" | "bulk" | "sold" | "sold-print" | null>(null);
+  const [savingAction, setSavingAction] = useState<"single" | "bulk" | "sold" | "sold-print" | "edit" | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [cameraOpen, setCameraOpen] = useState(false);
   const [cameraError, setCameraError] = useState("");
   const [cameraReady, setCameraReady] = useState(false);
+  const [imageTarget, setImageTarget] = useState<ImageTarget>("add");
   const galleryInputRef = useRef<HTMLInputElement>(null);
   const cameraInputRef = useRef<HTMLInputElement>(null);
+  const editGalleryInputRef = useRef<HTMLInputElement>(null);
+  const editCameraInputRef = useRef<HTMLInputElement>(null);
   const liveVideoRef = useRef<HTMLVideoElement>(null);
   const cameraStreamRef = useRef<MediaStream | null>(null);
 
@@ -757,7 +764,20 @@ export default function ThriftHatInventoryApp() {
     setForm((current) => ({ ...current, [key]: value }));
   }
 
-  async function handleImageFile(file: File | undefined) {
+  function updateEditForm(key: keyof FormState, value: string) {
+    setEditForm((current) => ({ ...current, [key]: value }));
+  }
+
+  function setTargetImage(value: string) {
+    if (imageTarget === "edit") {
+      updateEditForm("image", value);
+      return;
+    }
+
+    updateForm("image", value);
+  }
+
+  async function handleImageFile(file: File | undefined, target: ImageTarget = imageTarget) {
     if (!file) return;
 
     if (!file.type.startsWith("image/")) {
@@ -767,18 +787,28 @@ export default function ThriftHatInventoryApp() {
 
     try {
       const image = await resizeImageFile(file);
-      updateForm("image", image);
+      if (target === "edit") {
+        updateEditForm("image", image);
+      } else {
+        updateForm("image", image);
+      }
       setDbMessage("Foto siap disimpan bersama item.");
     } catch (error) {
       setDbMessage(error instanceof Error ? error.message : "Gagal memproses foto.");
     }
   }
 
-  function clearFormImage() {
-    updateForm("image", "");
+  function clearFormImage(target: ImageTarget = "add") {
+    if (target === "edit") {
+      updateEditForm("image", "");
+    } else {
+      updateForm("image", "");
+    }
 
     if (galleryInputRef.current) galleryInputRef.current.value = "";
     if (cameraInputRef.current) cameraInputRef.current.value = "";
+    if (editGalleryInputRef.current) editGalleryInputRef.current.value = "";
+    if (editCameraInputRef.current) editCameraInputRef.current.value = "";
   }
 
   function stopRealtimeCamera() {
@@ -793,19 +823,20 @@ export default function ThriftHatInventoryApp() {
     setCameraError("");
   }
 
-  async function openRealtimeCamera() {
+  async function openRealtimeCamera(target: ImageTarget = "add") {
     setCameraError("");
     setCameraReady(false);
+    setImageTarget(target);
 
     if (!navigator.mediaDevices?.getUserMedia) {
       setCameraError("Browser belum mendukung kamera realtime. Pakai opsi kamera file sebagai fallback.");
-      cameraInputRef.current?.click();
+      (target === "edit" ? editCameraInputRef.current : cameraInputRef.current)?.click();
       return;
     }
 
     if (!window.isSecureContext) {
       setCameraError("Kamera realtime butuh HTTPS atau localhost. Jika dibuka dari IP http://172.24.0.1, browser biasanya memblokir kamera.");
-      cameraInputRef.current?.click();
+      (target === "edit" ? editCameraInputRef.current : cameraInputRef.current)?.click();
       return;
     }
 
@@ -825,7 +856,7 @@ export default function ThriftHatInventoryApp() {
     } catch (error) {
       const message = error instanceof Error ? error.message : "Kamera tidak bisa dibuka.";
       setCameraError(`Kamera tidak bisa dibuka: ${message}`);
-      cameraInputRef.current?.click();
+      (target === "edit" ? editCameraInputRef.current : cameraInputRef.current)?.click();
     }
   }
 
@@ -850,7 +881,7 @@ export default function ThriftHatInventoryApp() {
     }
 
     context.drawImage(video, 0, 0, canvas.width, canvas.height);
-    updateForm("image", canvas.toDataURL("image/jpeg", 0.82));
+    setTargetImage(canvas.toDataURL("image/jpeg", 0.82));
     setDbMessage("Foto realtime siap disimpan bersama item.");
     closeRealtimeCamera();
   }
@@ -1155,6 +1186,49 @@ export default function ThriftHatInventoryApp() {
     setDeletingId(null);
   }
 
+  function openEditModal(hat: Hat) {
+    setEditModal(hat);
+    setEditForm({
+      name: hat.name,
+      costPrice: String(hat.costPrice),
+      image: hat.image || "",
+    });
+  }
+
+  async function saveEditedHat() {
+    if (!editModal || !editForm.name.trim() || !editForm.costPrice) return;
+
+    setSavingAction("edit");
+
+    const updates = {
+      name: editForm.name.trim(),
+      cost_price: Number(editForm.costPrice),
+      image_url: editForm.image.trim() || null,
+    };
+
+    if (supabase && !editModal.id.startsWith("demo-") && !editModal.id.startsWith("local-")) {
+      const { error } = await supabase.from("hats").update(updates).eq("id", editModal.id);
+      if (error) {
+        setDbMessage(`Gagal edit item: ${error.message}`);
+        setSavingAction(null);
+        return;
+      }
+    }
+
+    const editedHat: Hat = {
+      ...editModal,
+      name: updates.name,
+      costPrice: updates.cost_price,
+      image: updates.image_url,
+    };
+
+    setHats((current) => current.map((hat) => (hat.id === editModal.id ? editedHat : hat)));
+    setDbMessage(`${editModal.code} berhasil diperbarui.`);
+    setEditModal(null);
+    setEditForm(emptyForm);
+    setSavingAction(null);
+  }
+
   function exportCsv() {
     const header = ["code", "name", "costPrice", "status", "soldPrice", "platform", "boughtAt", "soldAt"];
     const rows = hats.map((hat) =>
@@ -1310,7 +1384,7 @@ export default function ThriftHatInventoryApp() {
                     type="file"
                     accept="image/*"
                     className="hidden"
-                    onChange={(event) => void handleImageFile(event.target.files?.[0])}
+                    onChange={(event) => void handleImageFile(event.target.files?.[0], "add")}
                   />
                   <input
                     ref={cameraInputRef}
@@ -1318,7 +1392,7 @@ export default function ThriftHatInventoryApp() {
                     accept="image/*"
                     capture="environment"
                     className="hidden"
-                    onChange={(event) => void handleImageFile(event.target.files?.[0])}
+                    onChange={(event) => void handleImageFile(event.target.files?.[0], "add")}
                   />
 
                   <div className="grid gap-3 sm:grid-cols-[120px_minmax(0,1fr)] sm:items-center">
@@ -1340,14 +1414,14 @@ export default function ThriftHatInventoryApp() {
                           <ImagePlus size={16} />
                           File
                         </Button>
-                        <Button variant="secondary" onClick={openRealtimeCamera}>
+                        <Button variant="secondary" onClick={() => openRealtimeCamera("add")}>
                           <Camera size={16} />
                           Kamera
                         </Button>
                       </div>
                       {cameraError && <p className="rounded-lg bg-amber-50 px-3 py-2 text-xs font-semibold leading-5 text-amber-800">{cameraError}</p>}
                       {form.image && (
-                        <Button variant="ghost" onClick={clearFormImage} className="h-9 justify-self-start px-3">
+                        <Button variant="ghost" onClick={() => clearFormImage("add")} className="h-9 justify-self-start px-3">
                           Hapus foto
                         </Button>
                       )}
@@ -1448,6 +1522,10 @@ export default function ThriftHatInventoryApp() {
                       {stockView !== "list" && <StatusBadge status={hat.status} />}
                     </div>
                     <div className={stockView === "list" ? "grid gap-2 sm:grid-cols-2" : "m-3 mt-0 grid gap-2"}>
+                      <Button variant="secondary" onClick={() => openEditModal(hat)} className={stockView === "list" ? "w-full sm:w-auto" : "h-10 w-auto px-3"}>
+                        <Pencil size={16} />
+                        Edit
+                      </Button>
                       <Button onClick={() => setSoldModal(hat)} className={stockView === "list" ? "w-full sm:w-auto" : "h-10 w-auto px-3"}>
                         SOLD
                       </Button>
@@ -1634,6 +1712,84 @@ export default function ThriftHatInventoryApp() {
                   {savingAction === "sold-print" ? "Menyimpan..." : "SOLD + Nota"}
                 </Button>
               </div>
+            </div>
+          </motion.div>
+        </div>
+      )}
+
+      {editModal && (
+        <div className="fixed inset-0 z-50 grid place-items-center overflow-y-auto bg-slate-950/50 p-4 backdrop-blur-sm">
+          <motion.div initial={{ opacity: 0, scale: 0.97 }} animate={{ opacity: 1, scale: 1 }} className="grid w-full max-w-lg gap-4 rounded-2xl bg-white p-5 shadow-2xl">
+            <div>
+              <h3 className="text-xl font-black text-slate-950">Edit Stok Topi</h3>
+              <p className="mt-1 text-sm font-medium text-slate-500">{editModal.code}</p>
+            </div>
+
+            <div className="grid gap-4">
+              <label className="grid gap-2 text-sm font-semibold text-slate-700">
+                Nama topi
+                <input value={editForm.name} onChange={(event) => updateEditForm("name", event.target.value)} className="h-11 rounded-lg border border-slate-200 bg-white px-3 text-sm font-medium text-slate-950 outline-none transition placeholder:text-slate-400 focus:border-cyan-500 focus:ring-4 focus:ring-cyan-100" />
+              </label>
+              <label className="grid gap-2 text-sm font-semibold text-slate-700">
+                Harga modal
+                <input value={editForm.costPrice} onChange={(event) => updateEditForm("costPrice", event.target.value.replace(/[^0-9]/g, ""))} inputMode="numeric" className="h-11 rounded-lg border border-slate-200 bg-white px-3 text-sm font-medium text-slate-950 outline-none transition placeholder:text-slate-400 focus:border-cyan-500 focus:ring-4 focus:ring-cyan-100" />
+              </label>
+              <label className="grid gap-2 text-sm font-semibold text-slate-700">
+                URL foto opsional
+                <input value={editForm.image} onChange={(event) => updateEditForm("image", event.target.value)} placeholder="Kosongkan jika belum ada foto" className="h-11 rounded-lg border border-slate-200 bg-white px-3 text-sm font-medium text-slate-950 outline-none transition placeholder:text-slate-400 focus:border-cyan-500 focus:ring-4 focus:ring-cyan-100" />
+              </label>
+
+              <div className="grid gap-3 rounded-xl border border-slate-200 bg-slate-50 p-3">
+                <input ref={editGalleryInputRef} type="file" accept="image/*" className="hidden" onChange={(event) => void handleImageFile(event.target.files?.[0], "edit")} />
+                <input ref={editCameraInputRef} type="file" accept="image/*" capture="environment" className="hidden" onChange={(event) => void handleImageFile(event.target.files?.[0], "edit")} />
+
+                <div className="grid gap-3 sm:grid-cols-[120px_minmax(0,1fr)] sm:items-center">
+                  <Image
+                    src={editForm.image || defaultImage}
+                    alt="Preview foto edit"
+                    width={240}
+                    height={180}
+                    className="aspect-[4/3] w-full rounded-lg object-cover sm:w-[120px]"
+                    unoptimized={editForm.image.startsWith("data:")}
+                  />
+                  <div className="grid gap-3">
+                    <div className="grid gap-2 sm:grid-cols-3">
+                      <Button variant="secondary" onClick={() => editGalleryInputRef.current?.click()}>
+                        <FolderOpen size={16} />
+                        Galeri
+                      </Button>
+                      <Button variant="secondary" onClick={() => editGalleryInputRef.current?.click()}>
+                        <ImagePlus size={16} />
+                        File
+                      </Button>
+                      <Button variant="secondary" onClick={() => openRealtimeCamera("edit")}>
+                        <Camera size={16} />
+                        Kamera
+                      </Button>
+                    </div>
+                    {editForm.image && (
+                      <Button variant="ghost" onClick={() => clearFormImage("edit")} className="h-9 justify-self-start px-3">
+                        Hapus foto
+                      </Button>
+                    )}
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div className="grid gap-3 sm:grid-cols-2">
+              <Button
+                variant="secondary"
+                onClick={() => {
+                  setEditModal(null);
+                  setEditForm(emptyForm);
+                }}
+              >
+                Batal
+              </Button>
+              <Button onClick={saveEditedHat} disabled={savingAction === "edit" || !editForm.name.trim() || !editForm.costPrice}>
+                {savingAction === "edit" ? "Menyimpan..." : "Simpan Edit"}
+              </Button>
             </div>
           </motion.div>
         </div>
