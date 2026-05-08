@@ -11,7 +11,6 @@ import {
   ChevronRight,
   CircleDollarSign,
   Database,
-  Download,
   Camera,
   FolderOpen,
   ImagePlus,
@@ -114,6 +113,15 @@ type ChartPoint = {
   label: string;
   value: number;
   helper: string;
+};
+type ReportPeriod = "daily" | "weekly" | "monthly";
+
+type ReportRange = {
+  title: string;
+  subtitle: string;
+  start: string;
+  end: string;
+  fileName: string;
 };
 
 type AuthLikeUser = {
@@ -285,6 +293,74 @@ function formatRupiah(value: number | null | undefined) {
     currency: "IDR",
     maximumFractionDigits: 0,
   }).format(value || 0);
+}
+
+function toDateInputValue(date: Date) {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+function parseDateInputValue(value: string) {
+  const [year, month, day] = value.split("-").map(Number);
+  return new Date(year, month - 1, day);
+}
+
+function formatDisplayDate(value: string) {
+  return new Intl.DateTimeFormat("id-ID", {
+    day: "2-digit",
+    month: "long",
+    year: "numeric",
+  }).format(parseDateInputValue(value));
+}
+
+function getReportRange(period: ReportPeriod): ReportRange {
+  const today = new Date();
+  const todayValue = toDateInputValue(today);
+
+  if (period === "daily") {
+    return {
+      title: "Laporan Harian",
+      subtitle: formatDisplayDate(todayValue),
+      start: todayValue,
+      end: todayValue,
+      fileName: `archana-caps-laporan-harian-${todayValue}`,
+    };
+  }
+
+  if (period === "weekly") {
+    const startDate = new Date(today);
+    const day = startDate.getDay() || 7;
+    startDate.setDate(startDate.getDate() - day + 1);
+
+    const endDate = new Date(startDate);
+    endDate.setDate(startDate.getDate() + 6);
+
+    const start = toDateInputValue(startDate);
+    const end = toDateInputValue(endDate);
+
+    return {
+      title: "Laporan Mingguan",
+      subtitle: `${formatDisplayDate(start)} - ${formatDisplayDate(end)}`,
+      start,
+      end,
+      fileName: `archana-caps-laporan-mingguan-${start}`,
+    };
+  }
+
+  const startDate = new Date(today.getFullYear(), today.getMonth(), 1);
+  const endDate = new Date(today.getFullYear(), today.getMonth() + 1, 0);
+  const start = toDateInputValue(startDate);
+  const end = toDateInputValue(endDate);
+
+  return {
+    title: "Laporan Bulanan",
+    subtitle: new Intl.DateTimeFormat("id-ID", { month: "long", year: "numeric" }).format(today),
+    start,
+    end,
+    fileName: `archana-caps-laporan-bulanan-${start.slice(0, 7)}`,
+  };
 }
 
 function escapeHtml(value: string) {
@@ -1570,20 +1646,288 @@ export default function ThriftHatInventoryApp() {
     setDeletingUserId(null);
   }
 
-  function exportCsv() {
-    const header = ["code", "name", "costPrice", "status", "soldPrice", "platform", "boughtAt", "soldAt"];
-    const rows = hats.map((hat) =>
-      [hat.code, hat.name, hat.costPrice, hat.status, hat.soldPrice || "", hat.platform, hat.boughtAt, hat.soldAt || ""]
-        .map((value) => `"${String(value).replace(/"/g, '""')}"`)
-        .join(",")
-    );
-    const blob = new Blob([[header.join(","), ...rows].join("\n")], { type: "text/csv;charset=utf-8" });
-    const url = URL.createObjectURL(blob);
-    const anchor = document.createElement("a");
-    anchor.href = url;
-    anchor.download = "archana-caps-export.csv";
-    anchor.click();
-    URL.revokeObjectURL(url);
+  function printSalesReport(period: ReportPeriod) {
+    const range = getReportRange(period);
+    const reportHats = soldHats
+      .filter((hat) => hat.soldAt && hat.soldAt >= range.start && hat.soldAt <= range.end)
+      .sort((hatA, hatB) => `${hatA.soldAt || ""}${hatA.code}`.localeCompare(`${hatB.soldAt || ""}${hatB.code}`));
+    const revenue = reportHats.reduce((sum, hat) => sum + (hat.soldPrice || 0), 0);
+    const cost = reportHats.reduce((sum, hat) => sum + hat.costPrice, 0);
+    const profit = revenue - cost;
+    const averageProfit = reportHats.length ? profit / reportHats.length : 0;
+    const logoUrl = `${window.location.origin}${logoSrc}`;
+    const reportWindow = window.open("", "_blank", "width=980,height=720");
+
+    if (!reportWindow) {
+      setDbMessage("Popup laporan diblokir browser. Izinkan popup untuk mencetak PDF.");
+      return;
+    }
+
+    const rows = reportHats
+      .map(
+        (hat, index) => `
+        <tr>
+          <td>${index + 1}</td>
+          <td>
+            <strong>${escapeHtml(hat.code)}</strong>
+            <span>${escapeHtml(hat.name)}</span>
+          </td>
+          <td>${escapeHtml(hat.soldAt ? formatDisplayDate(hat.soldAt) : "-")}</td>
+          <td>${escapeHtml(hat.platform || "-")}</td>
+          <td class="money">${formatRupiah(hat.costPrice)}</td>
+          <td class="money">${formatRupiah(hat.soldPrice)}</td>
+          <td class="money strong">${formatRupiah((hat.soldPrice || 0) - hat.costPrice)}</td>
+        </tr>`
+      )
+      .join("");
+
+    reportWindow.document.write(`<!doctype html>
+<html>
+  <head>
+    <title>${escapeHtml(range.fileName)}</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <style>
+      @page { size: A4; margin: 14mm; }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        color: #0f172a;
+        background: #f8fafc;
+        font-family: Arial, Helvetica, sans-serif;
+        font-size: 12px;
+      }
+      .sheet {
+        width: 100%;
+        min-height: 100vh;
+        margin: 0 auto;
+        background: white;
+        padding: 24px;
+      }
+      .letterhead {
+        display: grid;
+        grid-template-columns: 96px 1fr;
+        gap: 18px;
+        align-items: center;
+        border-bottom: 3px solid #0f172a;
+        padding-bottom: 16px;
+      }
+      .logo {
+        width: 88px;
+        height: 88px;
+        object-fit: contain;
+      }
+      .store {
+        margin: 0;
+        font-size: 28px;
+        font-weight: 900;
+        letter-spacing: 0;
+      }
+      .tagline {
+        margin: 4px 0 0;
+        color: #475569;
+        font-weight: 700;
+      }
+      .meta {
+        margin-top: 6px;
+        color: #64748b;
+        line-height: 1.5;
+      }
+      .title-row {
+        display: flex;
+        justify-content: space-between;
+        gap: 16px;
+        margin: 22px 0 16px;
+      }
+      h2 {
+        margin: 0;
+        font-size: 22px;
+      }
+      .period {
+        margin-top: 4px;
+        color: #64748b;
+        font-weight: 700;
+      }
+      .printed {
+        color: #64748b;
+        font-size: 11px;
+        text-align: right;
+      }
+      .summary {
+        display: grid;
+        grid-template-columns: repeat(4, 1fr);
+        gap: 10px;
+        margin-bottom: 18px;
+      }
+      .card {
+        border: 1px solid #e2e8f0;
+        border-radius: 8px;
+        padding: 12px;
+      }
+      .card span {
+        display: block;
+        color: #64748b;
+        font-size: 10px;
+        font-weight: 800;
+        text-transform: uppercase;
+      }
+      .card strong {
+        display: block;
+        margin-top: 6px;
+        font-size: 15px;
+      }
+      table {
+        width: 100%;
+        border-collapse: collapse;
+      }
+      th {
+        background: #0f172a;
+        color: white;
+        font-size: 10px;
+        letter-spacing: 0;
+        text-align: left;
+        text-transform: uppercase;
+      }
+      th, td {
+        border: 1px solid #e2e8f0;
+        padding: 9px 8px;
+        vertical-align: top;
+      }
+      td span {
+        display: block;
+        margin-top: 3px;
+        color: #475569;
+        font-weight: 700;
+      }
+      .money {
+        text-align: right;
+        white-space: nowrap;
+      }
+      .strong {
+        color: #047857;
+        font-weight: 900;
+      }
+      .empty {
+        border: 1px dashed #cbd5e1;
+        border-radius: 8px;
+        color: #64748b;
+        font-weight: 700;
+        padding: 24px;
+        text-align: center;
+      }
+      .signatures {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 40px;
+        margin-top: 34px;
+        page-break-inside: avoid;
+      }
+      .signature {
+        text-align: center;
+        color: #475569;
+        font-weight: 700;
+      }
+      .signature-line {
+        border-top: 1px solid #94a3b8;
+        margin: 56px auto 0;
+        max-width: 180px;
+        padding-top: 8px;
+      }
+      .screen-actions {
+        display: flex;
+        gap: 8px;
+        margin: 16px auto;
+        max-width: 360px;
+      }
+      button {
+        flex: 1;
+        height: 42px;
+        border: 0;
+        border-radius: 8px;
+        background: #020617;
+        color: white;
+        font-weight: 800;
+        cursor: pointer;
+      }
+      @media print {
+        body { background: white; }
+        .sheet { min-height: auto; padding: 0; }
+        .screen-actions { display: none; }
+      }
+    </style>
+  </head>
+  <body>
+    <main class="sheet">
+      <header class="letterhead">
+        <img class="logo" src="${escapeHtml(logoUrl)}" alt="${escapeHtml(storeName)}" />
+        <div>
+          <h1 class="store">${escapeHtml(storeName)}</h1>
+          <p class="tagline">Inventory dan Laporan Penjualan Topi Thrift</p>
+          <p class="meta">Laporan resmi toko untuk rekap omzet, modal, profit, dan transaksi SOLD.</p>
+        </div>
+      </header>
+
+      <section class="title-row">
+        <div>
+          <h2>${escapeHtml(range.title)}</h2>
+          <div class="period">${escapeHtml(range.subtitle)}</div>
+        </div>
+        <div class="printed">Dicetak<br />${escapeHtml(new Intl.DateTimeFormat("id-ID", { dateStyle: "full", timeStyle: "short" }).format(new Date()))}</div>
+      </section>
+
+      <section class="summary">
+        <div class="card"><span>Item Terjual</span><strong>${reportHats.length} pcs</strong></div>
+        <div class="card"><span>Omzet</span><strong>${formatRupiah(revenue)}</strong></div>
+        <div class="card"><span>Modal</span><strong>${formatRupiah(cost)}</strong></div>
+        <div class="card"><span>Profit Kotor</span><strong>${formatRupiah(profit)}</strong></div>
+      </section>
+
+      ${
+        reportHats.length
+          ? `<table>
+              <thead>
+                <tr>
+                  <th>No</th>
+                  <th>Item</th>
+                  <th>Tanggal</th>
+                  <th>Platform</th>
+                  <th>Modal</th>
+                  <th>Jual</th>
+                  <th>Profit</th>
+                </tr>
+              </thead>
+              <tbody>${rows}</tbody>
+            </table>`
+          : `<div class="empty">Belum ada item SOLD pada periode laporan ini.</div>`
+      }
+
+      <section class="summary" style="margin-top: 18px;">
+        <div class="card"><span>Avg Profit/Item</span><strong>${formatRupiah(averageProfit)}</strong></div>
+        <div class="card"><span>Margin</span><strong>${revenue ? Math.round((profit / revenue) * 100) : 0}%</strong></div>
+        <div class="card"><span>Periode Mulai</span><strong>${escapeHtml(formatDisplayDate(range.start))}</strong></div>
+        <div class="card"><span>Periode Akhir</span><strong>${escapeHtml(formatDisplayDate(range.end))}</strong></div>
+      </section>
+
+      <section class="signatures">
+        <div class="signature">
+          Dibuat oleh
+          <div class="signature-line">Admin</div>
+        </div>
+        <div class="signature">
+          Mengetahui
+          <div class="signature-line">Owner</div>
+        </div>
+      </section>
+    </main>
+    <div class="screen-actions">
+      <button onclick="window.print()">Cetak / Save PDF</button>
+      <button onclick="window.close()">Tutup</button>
+    </div>
+    <script>
+      window.addEventListener("load", () => setTimeout(() => window.print(), 300));
+    </script>
+  </body>
+</html>`);
+    reportWindow.document.close();
   }
 
   if (!mounted) {
@@ -1678,9 +2022,9 @@ export default function ThriftHatInventoryApp() {
                   <div className="grid content-end gap-3 rounded-xl bg-white/10 p-4">
                     <p className="text-xs font-semibold uppercase tracking-wide text-slate-300">Nilai stok</p>
                     <p className="text-2xl font-black">{formatRupiah(stats.stockValue)}</p>
-                    <Button variant="secondary" onClick={exportCsv} className="w-full border-white/15 bg-white text-slate-950 hover:bg-slate-100">
-                      <Download size={17} />
-                      Export CSV
+                    <Button variant="secondary" onClick={() => printSalesReport("monthly")} className="w-full border-white/15 bg-white text-slate-950 hover:bg-slate-100">
+                      <Printer size={17} />
+                      Cetak PDF Bulanan
                     </Button>
                   </div>
                 </div>
@@ -2078,10 +2422,20 @@ export default function ThriftHatInventoryApp() {
                   title="Laporan Penjualan"
                   description="Data item terjual dan profit per item."
                   action={
-                    <Button variant="secondary" onClick={exportCsv} className="w-full sm:w-auto">
-                      <Download size={16} />
-                      CSV
-                    </Button>
+                    <div className="grid gap-2 sm:grid-cols-3">
+                      <Button variant="secondary" onClick={() => printSalesReport("daily")} className="w-full whitespace-nowrap px-3">
+                        <Printer size={16} />
+                        Harian
+                      </Button>
+                      <Button variant="secondary" onClick={() => printSalesReport("weekly")} className="w-full whitespace-nowrap px-3">
+                        <Printer size={16} />
+                        Mingguan
+                      </Button>
+                      <Button variant="secondary" onClick={() => printSalesReport("monthly")} className="w-full whitespace-nowrap px-3">
+                        <Printer size={16} />
+                        Bulanan
+                      </Button>
+                    </div>
                   }
                 />
 
