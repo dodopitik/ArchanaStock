@@ -21,22 +21,27 @@ import {
   LayoutDashboard,
   List,
   LogOut,
+  Mail,
   PackagePlus,
   Printer,
   RefreshCw,
   Search,
+  ShieldCheck,
   Tag,
   Trash2,
   TrendingUp,
   User,
+  UserPlus,
+  Users,
   Wallet,
   type LucideIcon,
 } from "lucide-react";
 import { getSupabaseClient, isSupabaseConfigured } from "@/lib/supabase";
 
 type HatStatus = "AVAILABLE" | "SOLD";
-type ViewKey = "dashboard" | "add" | "stock" | "reports";
+type ViewKey = "dashboard" | "add" | "stock" | "users" | "reports";
 type StockView = "list" | "grid2" | "grid4";
+type ManagedUserStatus = "ACTIVE" | "INACTIVE";
 
 type Hat = {
   id: string;
@@ -64,10 +69,38 @@ type DbHat = {
   image_url: string | null;
 };
 
+type ManagedUser = {
+  id: string;
+  authUserId: string | null;
+  name: string;
+  email: string;
+  role: string;
+  status: ManagedUserStatus;
+  createdAt: string;
+};
+
+type DbManagedUser = {
+  id: string;
+  auth_user_id: string | null;
+  name: string;
+  email: string;
+  role: string;
+  status: ManagedUserStatus;
+  created_at: string;
+};
+
 type FormState = {
   name: string;
   costPrice: string;
   image: string;
+};
+
+type UserFormState = {
+  name: string;
+  email: string;
+  password: string;
+  role: string;
+  status: ManagedUserStatus;
 };
 
 type BulkItem = {
@@ -128,10 +161,39 @@ const initialHats: Hat[] = [
   },
 ];
 
+const initialUsers: ManagedUser[] = [
+  {
+    id: "demo-user-1",
+    authUserId: null,
+    name: "Admin Archana",
+    email: "admin@archanacaps.test",
+    role: "Owner",
+    status: "ACTIVE",
+    createdAt: "2026-05-01T00:00:00+07:00",
+  },
+  {
+    id: "demo-user-2",
+    authUserId: null,
+    name: "Staff Packing",
+    email: "staff@archanacaps.test",
+    role: "Staff",
+    status: "ACTIVE",
+    createdAt: "2026-05-02T00:00:00+07:00",
+  },
+];
+
 const emptyForm: FormState = {
   name: "",
   costPrice: "",
   image: "",
+};
+
+const emptyUserForm: UserFormState = {
+  name: "",
+  email: "",
+  password: "",
+  role: "Staff",
+  status: "ACTIVE",
 };
 
 function subscribeToClientReady(onStoreChange: () => void) {
@@ -159,6 +221,18 @@ function mapDbHat(row: DbHat): Hat {
     boughtAt: row.bought_at,
     soldAt: row.sold_at,
     image: row.image_url,
+  };
+}
+
+function mapDbManagedUser(row: DbManagedUser): ManagedUser {
+  return {
+    id: row.id,
+    authUserId: row.auth_user_id,
+    name: row.name,
+    email: row.email,
+    role: row.role,
+    status: row.status,
+    createdAt: row.created_at,
   };
 }
 
@@ -458,8 +532,8 @@ function LoginScreen({
           <div className="absolute inset-x-0 bottom-0 h-40 bg-red-700/30" />
           <div className="relative z-10 flex min-h-[420px] flex-col justify-between gap-8 md:min-h-[520px] md:gap-10">
             <div>
-              <Image src={logoSrc} alt={storeName} width={180} height={180} className="h-28 w-28 rounded-2xl object-cover ring-1 ring-white/10 sm:h-36 sm:w-36" priority />
-              <p className="mt-8 text-sm font-black uppercase text-red-300">{storeName}</p>
+              <Image src={logoSrc} alt={storeName} width={320} height={240} className="h-auto w-44 object-contain sm:w-56" priority />
+              <p className="mt-8 text-sm font-black uppercase text-red-300">Inventory Dashboard</p>
               <h1 className="mt-3 max-w-xl text-3xl font-black leading-tight text-white sm:text-4xl md:text-5xl md:leading-none">
                 Inventory cockpit untuk stok dan penjualan topi.
               </h1>
@@ -562,10 +636,13 @@ export default function ThriftHatInventoryApp() {
   const [activeView, setActiveView] = useState<ViewKey>("dashboard");
   const [stockView, setStockView] = useState<StockView>("list");
   const [hats, setHats] = useState<Hat[]>(initialHats);
+  const [users, setUsers] = useState<ManagedUser[]>(initialUsers);
   const [query, setQuery] = useState("");
   const [soldModal, setSoldModal] = useState<Hat | null>(null);
   const [editModal, setEditModal] = useState<Hat | null>(null);
   const [editForm, setEditForm] = useState<FormState>(emptyForm);
+  const [userForm, setUserForm] = useState<UserFormState>(emptyUserForm);
+  const [editingUserId, setEditingUserId] = useState<string | null>(null);
   const [soldPrice, setSoldPrice] = useState("");
   const [platform, setPlatform] = useState("Shopee");
   const [form, setForm] = useState<FormState>(emptyForm);
@@ -578,8 +655,9 @@ export default function ThriftHatInventoryApp() {
   const [dataLoading, setDataLoading] = useState(false);
   const [message, setMessage] = useState("");
   const [dbMessage, setDbMessage] = useState(isSupabaseConfigured ? "Menunggu login Supabase." : "Mode demo lokal.");
-  const [savingAction, setSavingAction] = useState<"single" | "bulk" | "sold" | "sold-print" | "edit" | null>(null);
+  const [savingAction, setSavingAction] = useState<"single" | "bulk" | "sold" | "sold-print" | "edit" | "user" | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [deletingUserId, setDeletingUserId] = useState<string | null>(null);
   const [cameraOpen, setCameraOpen] = useState(false);
   const [cameraError, setCameraError] = useState("");
   const [cameraReady, setCameraReady] = useState(false);
@@ -676,6 +754,25 @@ export default function ThriftHatInventoryApp() {
     setDataLoading(false);
   }, [supabase]);
 
+  const loadUsers = useCallback(async () => {
+    if (!supabase) return;
+
+    const { data, error } = await supabase.from("app_users").select("*").order("created_at", { ascending: false });
+
+    if (error) {
+      setDbMessage(`Gagal load user: ${error.message}`);
+    } else {
+      setUsers((data || []).map((row) => mapDbManagedUser(row as DbManagedUser)));
+    }
+  }, [supabase]);
+
+  const refreshData = useCallback(async () => {
+    if (!supabase) return;
+    setDataLoading(true);
+    await Promise.all([loadHats(), loadUsers()]);
+    setDataLoading(false);
+  }, [loadHats, loadUsers, supabase]);
+
   async function handleAuth() {
     setMessage("");
     setLoading(true);
@@ -708,6 +805,7 @@ export default function ThriftHatInventoryApp() {
     window.localStorage.removeItem("archana-caps-demo-user");
     setCurrentUser(null);
     setHats(initialHats);
+    setUsers(initialUsers);
     setActiveView("dashboard");
   }
 
@@ -731,8 +829,8 @@ export default function ThriftHatInventoryApp() {
 
   useEffect(() => {
     if (!currentUser || !supabase) return;
-    queueMicrotask(() => void loadHats());
-  }, [currentUser, loadHats, supabase]);
+    queueMicrotask(() => void refreshData());
+  }, [currentUser, refreshData, supabase]);
 
   useEffect(() => {
     const video = liveVideoRef.current;
@@ -766,6 +864,10 @@ export default function ThriftHatInventoryApp() {
 
   function updateEditForm(key: keyof FormState, value: string) {
     setEditForm((current) => ({ ...current, [key]: value }));
+  }
+
+  function updateUserForm(key: keyof UserFormState, value: string) {
+    setUserForm((current) => ({ ...current, [key]: value }));
   }
 
   function setTargetImage(value: string) {
@@ -1229,6 +1331,132 @@ export default function ThriftHatInventoryApp() {
     setSavingAction(null);
   }
 
+  function startEditUser(user: ManagedUser) {
+    setEditingUserId(user.id);
+    setUserForm({
+      name: user.name,
+      email: user.email,
+      password: "",
+      role: user.role,
+      status: user.status,
+    });
+    setActiveView("users");
+  }
+
+  function resetUserForm() {
+    setEditingUserId(null);
+    setUserForm(emptyUserForm);
+  }
+
+  async function saveUser() {
+    if (!userForm.name.trim() || !userForm.email.trim() || (!editingUserId && userForm.password.length < 6)) return;
+    setSavingAction("user");
+
+    const userPayload = {
+      name: userForm.name.trim(),
+      email: userForm.email.trim(),
+      password: userForm.password,
+      role: userForm.role.trim() || "Staff",
+      status: userForm.status,
+    };
+
+    if (supabase) {
+      const { data: sessionData } = await supabase.auth.getSession();
+      const token = sessionData.session?.access_token;
+      if (!token) {
+        setDbMessage("Login Supabase dulu sebelum membuat user.");
+        setSavingAction(null);
+        return;
+      }
+
+      const response = await fetch("/api/users", {
+        method: editingUserId ? "PATCH" : "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify(editingUserId ? { id: editingUserId, ...userPayload } : userPayload),
+      });
+      const result = await response.json();
+
+      if (!response.ok) {
+        setDbMessage(`Gagal simpan user: ${result.error || "Server error"}`);
+        setSavingAction(null);
+        return;
+      }
+
+      const savedUser = mapDbManagedUser(result.user as DbManagedUser);
+      if (editingUserId) {
+        setUsers((current) => current.map((user) => (user.id === editingUserId ? savedUser : user)));
+      } else {
+        setUsers((current) => [savedUser, ...current]);
+      }
+    } else if (editingUserId) {
+      setUsers((current) =>
+        current.map((user) =>
+          user.id === editingUserId
+            ? { ...user, name: userPayload.name, email: userPayload.email, role: userPayload.role, status: userPayload.status }
+            : user
+        )
+      );
+    } else {
+      setUsers((current) => [
+        {
+          id: makeLocalId(),
+          authUserId: null,
+          name: userPayload.name,
+          email: userPayload.email,
+          role: userPayload.role,
+          status: userPayload.status,
+          createdAt: new Date().toISOString(),
+        },
+        ...current,
+      ]);
+    }
+
+    setDbMessage(editingUserId ? "User berhasil diperbarui." : "User baru berhasil ditambahkan.");
+    resetUserForm();
+    setSavingAction(null);
+  }
+
+  async function deleteUser(user: ManagedUser) {
+    const confirmed = window.confirm(`Hapus user ${user.name}?`);
+    if (!confirmed) return;
+
+    setDeletingUserId(user.id);
+
+    if (supabase && !user.id.startsWith("demo-") && !user.id.startsWith("local-")) {
+      const { data: sessionData } = await supabase.auth.getSession();
+      const token = sessionData.session?.access_token;
+      if (!token) {
+        setDbMessage("Login Supabase dulu sebelum menghapus user.");
+        setDeletingUserId(null);
+        return;
+      }
+
+      const response = await fetch("/api/users", {
+        method: "DELETE",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ id: user.id }),
+      });
+      const result = await response.json();
+
+      if (!response.ok) {
+        setDbMessage(`Gagal hapus user: ${result.error || "Server error"}`);
+        setDeletingUserId(null);
+        return;
+      }
+    }
+
+    setUsers((current) => current.filter((item) => item.id !== user.id));
+    if (editingUserId === user.id) resetUserForm();
+    setDbMessage(`${user.name} dihapus dari daftar user.`);
+    setDeletingUserId(null);
+  }
+
   function exportCsv() {
     const header = ["code", "name", "costPrice", "status", "soldPrice", "platform", "boughtAt", "soldAt"];
     const rows = hats.map((hat) =>
@@ -1269,6 +1497,7 @@ export default function ThriftHatInventoryApp() {
     { key: "dashboard", label: "Dashboard", icon: LayoutDashboard },
     { key: "add", label: "Topi Masuk", icon: PackagePlus },
     { key: "stock", label: "Stok", icon: Boxes },
+    { key: "users", label: "User", icon: Users },
     { key: "reports", label: "Laporan", icon: BarChart3 },
   ];
 
@@ -1276,15 +1505,12 @@ export default function ThriftHatInventoryApp() {
     <div className="min-h-screen bg-slate-100 text-slate-950">
       <div className="mx-auto grid w-full max-w-7xl gap-4 p-3 sm:p-4 md:gap-5 md:p-6 lg:grid-cols-[260px_minmax(0,1fr)]">
         <aside className="h-fit rounded-2xl border border-slate-200 bg-white p-4 shadow-sm lg:sticky lg:top-6">
-          <div className="flex items-center gap-3 border-b border-slate-100 pb-4">
-            <Image src={logoSrc} alt={storeName} width={44} height={44} className="h-11 w-11 rounded-xl object-cover" />
-            <div className="min-w-0">
-              <p className="truncate text-lg font-black text-slate-950">{storeName}</p>
-              <p className="truncate text-xs font-medium text-slate-500">{currentUser}</p>
-            </div>
+          <div className="grid gap-3 border-b border-slate-100 pb-4">
+            <Image src={logoSrc} alt={storeName} width={220} height={160} className="h-auto w-36 object-contain" priority />
+            <p className="truncate text-xs font-medium text-slate-500">{currentUser}</p>
           </div>
 
-          <nav className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-4 lg:grid-cols-1">
+          <nav className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-5 lg:grid-cols-1">
             {navItems.map((item) => (
               <SidebarItem
                 key={item.key}
@@ -1307,7 +1533,7 @@ export default function ThriftHatInventoryApp() {
           </div>
 
           <div className="mt-4 grid gap-2">
-            <Button variant="secondary" onClick={loadHats} disabled={!supabase || dataLoading}>
+            <Button variant="secondary" onClick={refreshData} disabled={!supabase || dataLoading}>
               <RefreshCw size={16} />
               {dataLoading ? "Loading..." : "Refresh"}
             </Button>
@@ -1563,6 +1789,172 @@ export default function ThriftHatInventoryApp() {
                 )}
               </div>
             </Panel>
+          )}
+
+          {activeView === "users" && (
+            <section className="grid gap-5 xl:grid-cols-[380px_minmax(0,1fr)]">
+              <Panel className="p-4 sm:p-5">
+                <SectionHeader
+                  icon={editingUserId ? Pencil : UserPlus}
+                  title={editingUserId ? "Edit User" : "Tambah User"}
+                  description="Kelola daftar user internal toko untuk operasional dashboard."
+                />
+
+                <div className="grid gap-4">
+                  <label className="grid gap-2 text-sm font-semibold text-slate-700">
+                    Nama user
+                    <input
+                      value={userForm.name}
+                      onChange={(event) => updateUserForm("name", event.target.value)}
+                      placeholder="Nama staff"
+                      className="h-11 rounded-lg border border-slate-200 bg-white px-3 text-sm font-medium text-slate-950 outline-none transition placeholder:text-slate-400 focus:border-cyan-500 focus:ring-4 focus:ring-cyan-100"
+                    />
+                  </label>
+                  <label className="grid gap-2 text-sm font-semibold text-slate-700">
+                    Email
+                    <input
+                      value={userForm.email}
+                      onChange={(event) => updateUserForm("email", event.target.value)}
+                      placeholder="staff@archanacaps.test"
+                      type="email"
+                      className="h-11 rounded-lg border border-slate-200 bg-white px-3 text-sm font-medium text-slate-950 outline-none transition placeholder:text-slate-400 focus:border-cyan-500 focus:ring-4 focus:ring-cyan-100"
+                    />
+                  </label>
+                  <label className="grid gap-2 text-sm font-semibold text-slate-700">
+                    Password {editingUserId ? "baru opsional" : ""}
+                    <input
+                      value={userForm.password}
+                      onChange={(event) => updateUserForm("password", event.target.value)}
+                      placeholder={editingUserId ? "Kosongkan jika tidak diganti" : "Minimal 6 karakter"}
+                      type="password"
+                      className="h-11 rounded-lg border border-slate-200 bg-white px-3 text-sm font-medium text-slate-950 outline-none transition placeholder:text-slate-400 focus:border-cyan-500 focus:ring-4 focus:ring-cyan-100"
+                    />
+                  </label>
+                  <label className="grid gap-2 text-sm font-semibold text-slate-700">
+                    Role
+                    <select
+                      value={userForm.role}
+                      onChange={(event) => updateUserForm("role", event.target.value)}
+                      className="h-11 rounded-lg border border-slate-200 bg-white px-3 text-sm font-medium text-slate-950 outline-none transition focus:border-cyan-500 focus:ring-4 focus:ring-cyan-100"
+                    >
+                      <option>Owner</option>
+                      <option>Admin</option>
+                      <option>Staff</option>
+                      <option>Kasir</option>
+                    </select>
+                  </label>
+                  <label className="grid gap-2 text-sm font-semibold text-slate-700">
+                    Status
+                    <select
+                      value={userForm.status}
+                      onChange={(event) => updateUserForm("status", event.target.value as ManagedUserStatus)}
+                      className="h-11 rounded-lg border border-slate-200 bg-white px-3 text-sm font-medium text-slate-950 outline-none transition focus:border-cyan-500 focus:ring-4 focus:ring-cyan-100"
+                    >
+                      <option value="ACTIVE">Aktif</option>
+                      <option value="INACTIVE">Nonaktif</option>
+                    </select>
+                  </label>
+
+                  <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-1 2xl:grid-cols-2">
+                    <Button variant="secondary" onClick={resetUserForm} disabled={!editingUserId && !userForm.name && !userForm.email}>
+                      Batal
+                    </Button>
+                    <Button
+                      onClick={saveUser}
+                      disabled={savingAction === "user" || !userForm.name.trim() || !userForm.email.trim() || (!editingUserId && userForm.password.length < 6)}
+                    >
+                      <UserPlus size={16} />
+                      {savingAction === "user" ? "Menyimpan..." : editingUserId ? "Simpan Edit" : "Tambah User"}
+                    </Button>
+                  </div>
+                </div>
+              </Panel>
+
+              <Panel className="p-4 sm:p-5">
+                <SectionHeader icon={Users} title="Daftar User" description="Edit role, nonaktifkan, atau hapus user dari daftar operasional." />
+
+                <div className="grid gap-3 lg:hidden">
+                  {users.map((user) => (
+                    <article key={user.id} className="rounded-xl border border-slate-200 bg-white p-4">
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="min-w-0">
+                          <h3 className="truncate font-black text-slate-950">{user.name}</h3>
+                          <p className="mt-1 flex items-center gap-2 truncate text-sm font-medium text-slate-500">
+                            <Mail size={14} />
+                            {user.email}
+                          </p>
+                        </div>
+                        <span className={`shrink-0 rounded-full px-3 py-1 text-xs font-black ${user.status === "ACTIVE" ? "bg-emerald-50 text-emerald-700" : "bg-slate-100 text-slate-500"}`}>
+                          {user.status === "ACTIVE" ? "Aktif" : "Nonaktif"}
+                        </span>
+                      </div>
+                      <div className="mt-4 flex items-center justify-between gap-3">
+                        <span className="inline-flex items-center gap-2 rounded-full bg-slate-100 px-3 py-1 text-xs font-bold text-slate-600">
+                          <ShieldCheck size={14} />
+                          {user.role}
+                        </span>
+                        <div className="flex gap-2">
+                          <Button variant="secondary" onClick={() => startEditUser(user)} className="h-9 px-3">
+                            <Pencil size={15} />
+                          </Button>
+                          <Button variant="secondary" onClick={() => void deleteUser(user)} disabled={deletingUserId === user.id} className="h-9 px-3">
+                            <Trash2 size={15} />
+                          </Button>
+                        </div>
+                      </div>
+                    </article>
+                  ))}
+                </div>
+
+                <div className="hidden overflow-x-auto rounded-xl border border-slate-200 lg:block">
+                  <table className="w-full min-w-[720px] text-left text-sm">
+                    <thead className="bg-slate-50 text-xs font-bold uppercase text-slate-500">
+                      <tr>
+                        <th className="px-4 py-3">User</th>
+                        <th className="px-4 py-3">Role</th>
+                        <th className="px-4 py-3">Status</th>
+                        <th className="px-4 py-3">Aksi</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100 bg-white">
+                      {users.map((user) => (
+                        <tr key={user.id}>
+                          <td className="px-4 py-4">
+                            <p className="font-bold text-slate-950">{user.name}</p>
+                            <p className="mt-1 text-xs font-medium text-slate-400">{user.email}</p>
+                          </td>
+                          <td className="px-4 py-4 font-semibold text-slate-600">{user.role}</td>
+                          <td className="px-4 py-4">
+                            <span className={`rounded-full px-3 py-1 text-xs font-black ${user.status === "ACTIVE" ? "bg-emerald-50 text-emerald-700" : "bg-slate-100 text-slate-500"}`}>
+                              {user.status === "ACTIVE" ? "Aktif" : "Nonaktif"}
+                            </span>
+                          </td>
+                          <td className="px-4 py-4">
+                            <div className="flex gap-2">
+                              <Button variant="secondary" onClick={() => startEditUser(user)} className="h-9 px-3">
+                                <Pencil size={15} />
+                                Edit
+                              </Button>
+                              <Button variant="secondary" onClick={() => void deleteUser(user)} disabled={deletingUserId === user.id} className="h-9 px-3">
+                                <Trash2 size={15} />
+                                {deletingUserId === user.id ? "Hapus..." : "Hapus"}
+                              </Button>
+                            </div>
+                          </td>
+                        </tr>
+                      ))}
+                      {!users.length && (
+                        <tr>
+                          <td colSpan={4} className="px-4 py-10 text-center text-sm font-medium text-slate-500">
+                            Belum ada user.
+                          </td>
+                        </tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </Panel>
+            </section>
           )}
 
           {(activeView === "dashboard" || activeView === "reports") && (
