@@ -116,6 +116,10 @@ type ChartPoint = {
   helper: string;
 };
 
+type AuthLikeUser = {
+  app_metadata?: Record<string, unknown>;
+};
+
 const storeName = "Archana Caps";
 const logoSrc = "/archana-caps-logo.png";
 
@@ -240,6 +244,13 @@ async function getAccessToken(supabase: ReturnType<typeof getSupabaseClient>) {
   if (!supabase) return null;
   const { data } = await supabase.auth.getSession();
   return data.session?.access_token || null;
+}
+
+function canManageUsers(user: AuthLikeUser | null | undefined) {
+  if (!user) return false;
+  const createdBy = user.app_metadata?.created_by;
+  const role = user.app_metadata?.role;
+  return typeof createdBy !== "string" || role === "Owner" || role === "Admin";
 }
 
 function makeLocalId() {
@@ -657,6 +668,7 @@ export default function ThriftHatInventoryApp() {
   const [password, setPassword] = useState("");
   const [loginMode, setLoginMode] = useState<LoginMode>("login");
   const [currentUser, setCurrentUser] = useState<string | null>(null);
+  const [canManageUserMenu, setCanManageUserMenu] = useState(false);
   const [loading, setLoading] = useState(false);
   const [dataLoading, setDataLoading] = useState(false);
   const [message, setMessage] = useState("");
@@ -821,6 +833,8 @@ export default function ThriftHatInventoryApp() {
       setMessage("User ini sedang nonaktif. Hubungi admin toko.");
     } else {
       setCurrentUser(result.data.user?.email || email);
+      setCanManageUserMenu(canManageUsers(result.data.user));
+      if (!canManageUsers(result.data.user)) setActiveView("dashboard");
       setDbMessage(loginMode === "register" ? "Akun dibuat. Cek email jika konfirmasi aktif di Supabase." : "Login Supabase berhasil.");
     }
 
@@ -831,6 +845,7 @@ export default function ThriftHatInventoryApp() {
     if (supabase) await supabase.auth.signOut();
     window.localStorage.removeItem("archana-caps-demo-user");
     setCurrentUser(null);
+    setCanManageUserMenu(false);
     setHats(initialHats);
     setUsers(initialUsers);
     setActiveView("dashboard");
@@ -850,6 +865,8 @@ export default function ThriftHatInventoryApp() {
         return;
       }
       setCurrentUser(data.session?.user.email || null);
+      setCanManageUserMenu(canManageUsers(data.session?.user));
+      if (!canManageUsers(data.session?.user)) setActiveView("dashboard");
     });
 
     const { data: listener } = supabase.auth.onAuthStateChange((_event, session) => {
@@ -860,6 +877,8 @@ export default function ThriftHatInventoryApp() {
         return;
       }
       setCurrentUser(session?.user.email || null);
+      setCanManageUserMenu(canManageUsers(session?.user));
+      if (!canManageUsers(session?.user)) setActiveView("dashboard");
     });
 
     return () => listener.subscription.unsubscribe();
@@ -1591,7 +1610,7 @@ export default function ThriftHatInventoryApp() {
     { key: "dashboard", label: "Dashboard", icon: LayoutDashboard },
     { key: "add", label: "Topi Masuk", icon: PackagePlus },
     { key: "stock", label: "Stok", icon: Boxes },
-    { key: "users", label: "User", icon: Users },
+    ...(canManageUserMenu ? [{ key: "users" as ViewKey, label: "User", icon: Users }] : []),
     { key: "reports", label: "Laporan", icon: BarChart3 },
   ];
 
