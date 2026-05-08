@@ -79,14 +79,14 @@ type ManagedUser = {
   createdAt: string;
 };
 
-type DbManagedUser = {
+type ApiManagedUser = {
   id: string;
-  auth_user_id: string | null;
+  authUserId: string | null;
   name: string;
   email: string;
   role: string;
   status: ManagedUserStatus;
-  created_at: string;
+  createdAt: string;
 };
 
 type FormState = {
@@ -224,15 +224,15 @@ function mapDbHat(row: DbHat): Hat {
   };
 }
 
-function mapDbManagedUser(row: DbManagedUser): ManagedUser {
+function mapApiManagedUser(row: ApiManagedUser): ManagedUser {
   return {
     id: row.id,
-    authUserId: row.auth_user_id,
+    authUserId: row.authUserId,
     name: row.name,
     email: row.email,
     role: row.role,
     status: row.status,
-    createdAt: row.created_at,
+    createdAt: row.createdAt,
   };
 }
 
@@ -757,13 +757,21 @@ export default function ThriftHatInventoryApp() {
   const loadUsers = useCallback(async () => {
     if (!supabase) return;
 
-    const { data, error } = await supabase.from("app_users").select("*").order("created_at", { ascending: false });
+    const { data: sessionData } = await supabase.auth.getSession();
+    const token = sessionData.session?.access_token;
+    if (!token) return;
 
-    if (error) {
-      setDbMessage(`Gagal load user: ${error.message}`);
-    } else {
-      setUsers((data || []).map((row) => mapDbManagedUser(row as DbManagedUser)));
+    const response = await fetch("/api/users", {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    const result = await response.json();
+
+    if (!response.ok) {
+      setDbMessage(`Gagal load user: ${result.error || "Server error"}`);
+      return;
     }
+
+    setUsers((result.users || []).map((row: ApiManagedUser) => mapApiManagedUser(row)));
   }, [supabase]);
 
   const refreshData = useCallback(async () => {
@@ -1385,7 +1393,7 @@ export default function ThriftHatInventoryApp() {
         return;
       }
 
-      const savedUser = mapDbManagedUser(result.user as DbManagedUser);
+      const savedUser = mapApiManagedUser(result.user as ApiManagedUser);
       if (editingUserId) {
         setUsers((current) => current.map((user) => (user.id === editingUserId ? savedUser : user)));
       } else {
