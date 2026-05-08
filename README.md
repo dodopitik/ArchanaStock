@@ -17,7 +17,10 @@ Buat `.env.local` dari `.env.example`:
 ```env
 NEXT_PUBLIC_SUPABASE_URL=your_supabase_project_url
 NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=your_supabase_publishable_key
+SUPABASE_SERVICE_ROLE_KEY=your_supabase_service_role_key
 ```
+
+`SUPABASE_SERVICE_ROLE_KEY` hanya boleh dipasang di server environment seperti `.env.local` dan Vercel Environment Variables. Jangan expose key ini di frontend atau commit key asli ke Git.
 
 ## Database
 

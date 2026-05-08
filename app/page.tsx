@@ -236,9 +236,10 @@ function mapApiManagedUser(row: ApiManagedUser): ManagedUser {
   };
 }
 
-function getWorkspaceUserId(user: { id: string; app_metadata?: Record<string, unknown> }) {
-  const createdBy = user.app_metadata?.created_by;
-  return typeof createdBy === "string" ? createdBy : user.id;
+async function getAccessToken(supabase: ReturnType<typeof getSupabaseClient>) {
+  if (!supabase) return null;
+  const { data } = await supabase.auth.getSession();
+  return data.session?.access_token || null;
 }
 
 function makeLocalId() {
@@ -747,12 +748,22 @@ export default function ThriftHatInventoryApp() {
     if (!supabase) return;
     setDataLoading(true);
 
-    const { data, error } = await supabase.from("hats").select("*").order("created_at", { ascending: false });
+    const token = await getAccessToken(supabase);
+    if (!token) {
+      setDbMessage("Login Supabase dulu untuk memuat stok.");
+      setDataLoading(false);
+      return;
+    }
 
-    if (error) {
-      setDbMessage(`Database error: ${error.message}`);
+    const response = await fetch("/api/hats", {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    const result = await response.json();
+
+    if (!response.ok) {
+      setDbMessage(`Database error: ${result.error || "Server error"}`);
     } else {
-      setHats((data || []).map((row) => mapDbHat(row as DbHat)));
+      setHats((result.hats || []).map((row: DbHat) => mapDbHat(row)));
       setDbMessage("Tersambung ke Supabase.");
     }
 
@@ -1035,14 +1046,13 @@ export default function ThriftHatInventoryApp() {
     const newHats = items.map((item, index) => makeHat(item, index, image));
 
     if (supabase) {
-      const { data: userData } = await supabase.auth.getUser();
-      if (!userData.user) {
+      const token = await getAccessToken(supabase);
+      if (!token) {
         setDbMessage("Login Supabase dulu sebelum menyimpan item.");
         return false;
       }
 
       const rows = newHats.map((hat) => ({
-        user_id: getWorkspaceUserId(userData.user),
         code: hat.code,
         name: hat.name,
         cost_price: hat.costPrice,
@@ -1054,14 +1064,22 @@ export default function ThriftHatInventoryApp() {
         image_url: hat.image,
       }));
 
-      const { data, error } = await supabase.from("hats").insert(rows).select("*");
+      const response = await fetch("/api/hats", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ rows }),
+      });
+      const result = await response.json();
 
-      if (error) {
-        setDbMessage(`Gagal simpan: ${error.message}`);
+      if (!response.ok) {
+        setDbMessage(`Gagal simpan: ${result.error || "Server error"}`);
         return false;
       }
 
-      setHats((current) => [...(data || []).map((row) => mapDbHat(row as DbHat)), ...current]);
+      setHats((current) => [...(result.hats || []).map((row: DbHat) => mapDbHat(row)), ...current]);
       setDbMessage(`${newHats.length} item tersimpan ke Supabase.`);
     } else {
       setHats((current) => [...newHats, ...current]);
@@ -1267,12 +1285,29 @@ export default function ThriftHatInventoryApp() {
     };
 
     if (supabase) {
-      const { error } = await supabase.from("hats").update(updates).eq("id", soldModal.id);
-      if (error) {
-        setDbMessage(`Gagal update sold: ${error.message}`);
+      const token = await getAccessToken(supabase);
+      if (!token) {
+        setDbMessage("Login Supabase dulu sebelum update sold.");
         setSavingAction(null);
         return;
       }
+
+      const response = await fetch("/api/hats", {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ id: soldModal.id, updates }),
+      });
+      const result = await response.json();
+
+      if (!response.ok) {
+        setDbMessage(`Gagal update sold: ${result.error || "Server error"}`);
+        setSavingAction(null);
+        return;
+      }
+
       setDbMessage("Status sold tersimpan ke Supabase.");
     }
 
@@ -1302,9 +1337,25 @@ export default function ThriftHatInventoryApp() {
     setDeletingId(hat.id);
 
     if (supabase && !hat.id.startsWith("demo-") && !hat.id.startsWith("local-")) {
-      const { error } = await supabase.from("hats").delete().eq("id", hat.id);
-      if (error) {
-        setDbMessage(`Gagal hapus item: ${error.message}`);
+      const token = await getAccessToken(supabase);
+      if (!token) {
+        setDbMessage("Login Supabase dulu sebelum hapus item.");
+        setDeletingId(null);
+        return;
+      }
+
+      const response = await fetch("/api/hats", {
+        method: "DELETE",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ id: hat.id }),
+      });
+      const result = await response.json();
+
+      if (!response.ok) {
+        setDbMessage(`Gagal hapus item: ${result.error || "Server error"}`);
         setDeletingId(null);
         return;
       }
@@ -1336,9 +1387,25 @@ export default function ThriftHatInventoryApp() {
     };
 
     if (supabase && !editModal.id.startsWith("demo-") && !editModal.id.startsWith("local-")) {
-      const { error } = await supabase.from("hats").update(updates).eq("id", editModal.id);
-      if (error) {
-        setDbMessage(`Gagal edit item: ${error.message}`);
+      const token = await getAccessToken(supabase);
+      if (!token) {
+        setDbMessage("Login Supabase dulu sebelum edit item.");
+        setSavingAction(null);
+        return;
+      }
+
+      const response = await fetch("/api/hats", {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ id: editModal.id, updates }),
+      });
+      const result = await response.json();
+
+      if (!response.ok) {
+        setDbMessage(`Gagal edit item: ${result.error || "Server error"}`);
         setSavingAction(null);
         return;
       }
