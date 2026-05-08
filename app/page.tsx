@@ -236,6 +236,11 @@ function mapApiManagedUser(row: ApiManagedUser): ManagedUser {
   };
 }
 
+function getWorkspaceUserId(user: { id: string; app_metadata?: Record<string, unknown> }) {
+  const createdBy = user.app_metadata?.created_by;
+  return typeof createdBy === "string" ? createdBy : user.id;
+}
+
 function makeLocalId() {
   if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
     return crypto.randomUUID();
@@ -647,8 +652,8 @@ export default function ThriftHatInventoryApp() {
   const [platform, setPlatform] = useState("Shopee");
   const [form, setForm] = useState<FormState>(emptyForm);
   const [bulkText, setBulkText] = useState("");
-  const [email, setEmail] = useState("admin@archanacaps.test");
-  const [password, setPassword] = useState("password123");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
   const [loginMode, setLoginMode] = useState<LoginMode>("login");
   const [currentUser, setCurrentUser] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
@@ -800,6 +805,9 @@ export default function ThriftHatInventoryApp() {
 
     if (result.error) {
       setMessage(result.error.message);
+    } else if (result.data.user?.app_metadata?.status === "INACTIVE") {
+      await supabase.auth.signOut();
+      setMessage("User ini sedang nonaktif. Hubungi admin toko.");
     } else {
       setCurrentUser(result.data.user?.email || email);
       setDbMessage(loginMode === "register" ? "Akun dibuat. Cek email jika konfirmasi aktif di Supabase." : "Login Supabase berhasil.");
@@ -825,10 +833,21 @@ export default function ThriftHatInventoryApp() {
     }
 
     supabase.auth.getSession().then(({ data }) => {
+      if (data.session?.user.app_metadata?.status === "INACTIVE") {
+        void supabase.auth.signOut();
+        setMessage("User ini sedang nonaktif. Hubungi admin toko.");
+        return;
+      }
       setCurrentUser(data.session?.user.email || null);
     });
 
     const { data: listener } = supabase.auth.onAuthStateChange((_event, session) => {
+      if (session?.user.app_metadata?.status === "INACTIVE") {
+        void supabase.auth.signOut();
+        setCurrentUser(null);
+        setMessage("User ini sedang nonaktif. Hubungi admin toko.");
+        return;
+      }
       setCurrentUser(session?.user.email || null);
     });
 
@@ -1023,7 +1042,7 @@ export default function ThriftHatInventoryApp() {
       }
 
       const rows = newHats.map((hat) => ({
-        user_id: userData.user.id,
+        user_id: getWorkspaceUserId(userData.user),
         code: hat.code,
         name: hat.name,
         cost_price: hat.costPrice,
