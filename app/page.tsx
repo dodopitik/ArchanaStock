@@ -102,6 +102,12 @@ type UserFormState = {
   status: ManagedUserStatus;
 };
 
+type ReportFormState = {
+  soldPrice: string;
+  platform: string;
+  soldAt: string;
+};
+
 type BulkItem = {
   name: string;
   costPrice: number;
@@ -208,6 +214,12 @@ const emptyUserForm: UserFormState = {
   status: "ACTIVE",
 };
 
+const emptyReportForm: ReportFormState = {
+  soldPrice: "",
+  platform: "Shopee",
+  soldAt: "",
+};
+
 function subscribeToClientReady(onStoreChange: () => void) {
   const timeoutId = window.setTimeout(onStoreChange, 0);
   return () => window.clearTimeout(timeoutId);
@@ -259,6 +271,13 @@ function canManageUsers(user: AuthLikeUser | null | undefined) {
   const createdBy = user.app_metadata?.created_by;
   const role = user.app_metadata?.role;
   return typeof createdBy !== "string" || role === "Owner" || role === "Admin";
+}
+
+function canManageReports(user: AuthLikeUser | null | undefined) {
+  if (!user) return false;
+  const createdBy = user.app_metadata?.created_by;
+  const role = user.app_metadata?.role;
+  return typeof createdBy !== "string" || role === "Owner";
 }
 
 function makeLocalId() {
@@ -733,7 +752,9 @@ export default function ThriftHatInventoryApp() {
   const [query, setQuery] = useState("");
   const [soldModal, setSoldModal] = useState<Hat | null>(null);
   const [editModal, setEditModal] = useState<Hat | null>(null);
+  const [reportEditModal, setReportEditModal] = useState<Hat | null>(null);
   const [editForm, setEditForm] = useState<FormState>(emptyForm);
+  const [reportForm, setReportForm] = useState<ReportFormState>(emptyReportForm);
   const [userForm, setUserForm] = useState<UserFormState>(emptyUserForm);
   const [editingUserId, setEditingUserId] = useState<string | null>(null);
   const [soldPrice, setSoldPrice] = useState("");
@@ -745,11 +766,12 @@ export default function ThriftHatInventoryApp() {
   const [loginMode, setLoginMode] = useState<LoginMode>("login");
   const [currentUser, setCurrentUser] = useState<string | null>(null);
   const [canManageUserMenu, setCanManageUserMenu] = useState(false);
+  const [canManageReportActions, setCanManageReportActions] = useState(false);
   const [loading, setLoading] = useState(false);
   const [dataLoading, setDataLoading] = useState(false);
   const [message, setMessage] = useState("");
   const [dbMessage, setDbMessage] = useState(isSupabaseConfigured ? "Menunggu login Supabase." : "Mode demo lokal.");
-  const [savingAction, setSavingAction] = useState<"single" | "bulk" | "sold" | "sold-print" | "edit" | "user" | null>(null);
+  const [savingAction, setSavingAction] = useState<"single" | "bulk" | "sold" | "sold-print" | "edit" | "user" | "report-edit" | "report-cancel" | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [deletingUserId, setDeletingUserId] = useState<string | null>(null);
   const [cameraOpen, setCameraOpen] = useState(false);
@@ -892,6 +914,7 @@ export default function ThriftHatInventoryApp() {
     if (!supabase) {
       window.localStorage.setItem("archana-caps-demo-user", email);
       setCurrentUser(email);
+      setCanManageReportActions(true);
       setDbMessage("Mode demo lokal. Data belum tersimpan ke database.");
       setLoading(false);
       return;
@@ -910,6 +933,7 @@ export default function ThriftHatInventoryApp() {
     } else {
       setCurrentUser(result.data.user?.email || email);
       setCanManageUserMenu(canManageUsers(result.data.user));
+      setCanManageReportActions(canManageReports(result.data.user));
       if (!canManageUsers(result.data.user)) setActiveView("dashboard");
       setDbMessage(loginMode === "register" ? "Akun dibuat. Cek email jika konfirmasi aktif di Supabase." : "Login Supabase berhasil.");
     }
@@ -922,6 +946,7 @@ export default function ThriftHatInventoryApp() {
     window.localStorage.removeItem("archana-caps-demo-user");
     setCurrentUser(null);
     setCanManageUserMenu(false);
+    setCanManageReportActions(false);
     setHats(initialHats);
     setUsers(initialUsers);
     setActiveView("dashboard");
@@ -930,7 +955,12 @@ export default function ThriftHatInventoryApp() {
   useEffect(() => {
     if (!supabase) {
       const demoUser = window.localStorage.getItem("archana-caps-demo-user");
-      if (demoUser) queueMicrotask(() => setCurrentUser(demoUser));
+      if (demoUser) {
+        queueMicrotask(() => {
+          setCurrentUser(demoUser);
+          setCanManageReportActions(true);
+        });
+      }
       return;
     }
 
@@ -942,6 +972,7 @@ export default function ThriftHatInventoryApp() {
       }
       setCurrentUser(data.session?.user.email || null);
       setCanManageUserMenu(canManageUsers(data.session?.user));
+      setCanManageReportActions(canManageReports(data.session?.user));
       if (!canManageUsers(data.session?.user)) setActiveView("dashboard");
     });
 
@@ -949,11 +980,13 @@ export default function ThriftHatInventoryApp() {
       if (session?.user.app_metadata?.status === "INACTIVE") {
         void supabase.auth.signOut();
         setCurrentUser(null);
+        setCanManageReportActions(false);
         setMessage("User ini sedang nonaktif. Hubungi admin toko.");
         return;
       }
       setCurrentUser(session?.user.email || null);
       setCanManageUserMenu(canManageUsers(session?.user));
+      setCanManageReportActions(canManageReports(session?.user));
       if (!canManageUsers(session?.user)) setActiveView("dashboard");
     });
 
@@ -997,6 +1030,10 @@ export default function ThriftHatInventoryApp() {
 
   function updateEditForm(key: keyof FormState, value: string) {
     setEditForm((current) => ({ ...current, [key]: value }));
+  }
+
+  function updateReportForm(key: keyof ReportFormState, value: string) {
+    setReportForm((current) => ({ ...current, [key]: value }));
   }
 
   function updateUserForm(key: keyof UserFormState, value: string) {
@@ -1517,6 +1554,138 @@ export default function ThriftHatInventoryApp() {
     setDbMessage(`${editModal.code} berhasil diperbarui.`);
     setEditModal(null);
     setEditForm(emptyForm);
+    setSavingAction(null);
+  }
+
+  function openReportEditModal(hat: Hat) {
+    if (!canManageReportActions) {
+      setDbMessage("Hanya Owner yang bisa mengubah laporan SOLD.");
+      return;
+    }
+
+    setReportEditModal(hat);
+    setReportForm({
+      soldPrice: String(hat.soldPrice || ""),
+      platform: hat.platform || "Shopee",
+      soldAt: hat.soldAt || toDateInputValue(new Date()),
+    });
+  }
+
+  async function saveReportEdit() {
+    if (!reportEditModal || !reportForm.soldPrice || !reportForm.soldAt) return;
+    if (!canManageReportActions) {
+      setDbMessage("Hanya Owner yang bisa mengubah laporan SOLD.");
+      return;
+    }
+
+    setSavingAction("report-edit");
+
+    const updates = {
+      sold_price: Number(reportForm.soldPrice),
+      platform: reportForm.platform.trim() || "Lainnya",
+      sold_at: reportForm.soldAt,
+    };
+
+    if (supabase && !reportEditModal.id.startsWith("demo-") && !reportEditModal.id.startsWith("local-")) {
+      const token = await getAccessToken(supabase);
+      if (!token) {
+        setDbMessage("Login Supabase dulu sebelum edit laporan.");
+        setSavingAction(null);
+        return;
+      }
+
+      const response = await fetch("/api/hats", {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ id: reportEditModal.id, updates, requireOwner: true }),
+      });
+      const result = await response.json();
+
+      if (!response.ok) {
+        setDbMessage(`Gagal edit laporan: ${result.error || "Server error"}`);
+        setSavingAction(null);
+        return;
+      }
+    }
+
+    setHats((current) =>
+      current.map((hat) =>
+        hat.id === reportEditModal.id
+          ? {
+              ...hat,
+              soldPrice: updates.sold_price,
+              platform: updates.platform,
+              soldAt: updates.sold_at,
+            }
+          : hat
+      )
+    );
+    setDbMessage(`Laporan ${reportEditModal.code} berhasil diperbarui.`);
+    setReportEditModal(null);
+    setReportForm(emptyReportForm);
+    setSavingAction(null);
+  }
+
+  async function cancelReportSale(hat: Hat) {
+    if (!canManageReportActions) {
+      setDbMessage("Hanya Owner yang bisa menghapus laporan SOLD.");
+      return;
+    }
+
+    const confirmed = window.confirm(`Batalkan SOLD ${hat.code} - ${hat.name}? Item akan kembali ke stok available dan hilang dari laporan.`);
+    if (!confirmed) return;
+
+    setSavingAction("report-cancel");
+
+    const updates = {
+      status: "AVAILABLE" as HatStatus,
+      sold_price: null,
+      platform: "",
+      sold_at: null,
+    };
+
+    if (supabase && !hat.id.startsWith("demo-") && !hat.id.startsWith("local-")) {
+      const token = await getAccessToken(supabase);
+      if (!token) {
+        setDbMessage("Login Supabase dulu sebelum hapus laporan.");
+        setSavingAction(null);
+        return;
+      }
+
+      const response = await fetch("/api/hats", {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ id: hat.id, updates, requireOwner: true }),
+      });
+      const result = await response.json();
+
+      if (!response.ok) {
+        setDbMessage(`Gagal hapus laporan: ${result.error || "Server error"}`);
+        setSavingAction(null);
+        return;
+      }
+    }
+
+    setHats((current) =>
+      current.map((item) =>
+        item.id === hat.id
+          ? {
+              ...item,
+              status: "AVAILABLE",
+              soldPrice: null,
+              platform: "",
+              soldAt: null,
+            }
+          : item
+      )
+    );
+    setDbMessage(`Laporan ${hat.code} dihapus. Item kembali ke stok available.`);
     setSavingAction(null);
   }
 
@@ -2448,9 +2617,28 @@ export default function ThriftHatInventoryApp() {
                           <h3 className="mt-1 line-clamp-2 font-black leading-snug text-slate-950">{hat.name}</h3>
                           <p className="mt-1 text-xs font-semibold text-slate-400">{hat.platform || "-"} - {hat.soldAt}</p>
                         </div>
-                        <Button variant="secondary" onClick={() => printReceipt(hat)} className="h-9 shrink-0 px-3">
-                          <Printer size={15} />
-                        </Button>
+                        <div className="flex shrink-0 gap-1.5">
+                          <Button variant="secondary" onClick={() => printReceipt(hat)} className="h-9 px-3">
+                            <Printer size={15} />
+                          </Button>
+                          {canManageReportActions && (
+                            <>
+                              <Button variant="secondary" onClick={() => openReportEditModal(hat)} className="h-9 px-3" title="Edit laporan" aria-label={`Edit laporan ${hat.name}`}>
+                                <Pencil size={15} />
+                              </Button>
+                              <Button
+                                variant="secondary"
+                                onClick={() => void cancelReportSale(hat)}
+                                disabled={savingAction === "report-cancel"}
+                                className="h-9 px-3"
+                                title="Hapus laporan"
+                                aria-label={`Hapus laporan ${hat.name}`}
+                              >
+                                <Trash2 size={15} />
+                              </Button>
+                            </>
+                          )}
+                        </div>
                       </div>
                       <div className="mt-4 grid gap-2 text-xs min-[430px]:grid-cols-3">
                         <div className="rounded-lg bg-slate-50 p-3">
@@ -2485,6 +2673,7 @@ export default function ThriftHatInventoryApp() {
                         <th className="px-4 py-3">Jual</th>
                         <th className="px-4 py-3">Profit</th>
                         <th className="px-4 py-3">Nota</th>
+                        {canManageReportActions && <th className="px-4 py-3">Aksi Owner</th>}
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100 bg-white">
@@ -2504,11 +2693,25 @@ export default function ThriftHatInventoryApp() {
                               Cetak
                             </Button>
                           </td>
+                          {canManageReportActions && (
+                            <td className="px-4 py-4">
+                              <div className="flex gap-2">
+                                <Button variant="secondary" onClick={() => openReportEditModal(hat)} className="h-9 px-3">
+                                  <Pencil size={15} />
+                                  Edit
+                                </Button>
+                                <Button variant="secondary" onClick={() => void cancelReportSale(hat)} disabled={savingAction === "report-cancel"} className="h-9 px-3">
+                                  <Trash2 size={15} />
+                                  Hapus
+                                </Button>
+                              </div>
+                            </td>
+                          )}
                         </tr>
                       ))}
                       {!soldHats.length && (
                         <tr>
-                          <td colSpan={6} className="px-4 py-10 text-center text-sm font-medium text-slate-500">
+                          <td colSpan={canManageReportActions ? 7 : 6} className="px-4 py-10 text-center text-sm font-medium text-slate-500">
                             Belum ada item SOLD.
                           </td>
                         </tr>
@@ -2583,6 +2786,58 @@ export default function ThriftHatInventoryApp() {
                 <Button onClick={() => markAsSold(true)} disabled={savingAction === "sold" || savingAction === "sold-print"}>
                   <Printer size={16} />
                   {savingAction === "sold-print" ? "Menyimpan..." : "SOLD + Nota"}
+                </Button>
+              </div>
+            </div>
+          </motion.div>
+        </div>
+      )}
+
+      {reportEditModal && (
+        <div className="fixed inset-0 z-50 grid place-items-center bg-slate-950/50 p-4 backdrop-blur-sm">
+          <motion.div initial={{ opacity: 0, scale: 0.97 }} animate={{ opacity: 1, scale: 1 }} className="w-full max-w-md rounded-2xl bg-white p-5 shadow-2xl">
+            <div className="flex gap-4">
+              <Image src={reportEditModal.image || defaultImage} alt={reportEditModal.name} width={160} height={160} unoptimized={Boolean(reportEditModal.image?.startsWith("data:"))} className="h-20 w-20 shrink-0 rounded-xl object-cover" />
+              <div className="min-w-0">
+                <h3 className="text-xl font-black text-slate-950">Edit Laporan SOLD</h3>
+                <p className="mt-1 truncate text-sm font-medium text-slate-500">{reportEditModal.code} - {reportEditModal.name}</p>
+                <p className="mt-1 text-xs font-semibold text-slate-400">Khusus Owner</p>
+              </div>
+            </div>
+
+            <div className="mt-5 grid gap-4">
+              <label className="grid gap-2 text-sm font-semibold text-slate-700">
+                Harga jual
+                <input value={reportForm.soldPrice} onChange={(event) => updateReportForm("soldPrice", event.target.value.replace(/[^0-9]/g, ""))} placeholder="120000" inputMode="numeric" className="h-11 rounded-lg border border-slate-200 bg-white px-3 text-sm font-medium outline-none transition placeholder:text-slate-400 focus:border-cyan-500 focus:ring-4 focus:ring-cyan-100" />
+              </label>
+              <label className="grid gap-2 text-sm font-semibold text-slate-700">
+                Tanggal SOLD
+                <input value={reportForm.soldAt} onChange={(event) => updateReportForm("soldAt", event.target.value)} type="date" className="h-11 rounded-lg border border-slate-200 bg-white px-3 text-sm font-medium outline-none transition focus:border-cyan-500 focus:ring-4 focus:ring-cyan-100" />
+              </label>
+              <label className="grid gap-2 text-sm font-semibold text-slate-700">
+                Platform
+                <select value={reportForm.platform} onChange={(event) => updateReportForm("platform", event.target.value)} className="h-11 rounded-lg border border-slate-200 bg-white px-3 text-sm font-medium outline-none transition focus:border-cyan-500 focus:ring-4 focus:ring-cyan-100">
+                  <option>Shopee</option>
+                  <option>TikTok</option>
+                  <option>Instagram</option>
+                  <option>Offline</option>
+                  <option>Tokopedia</option>
+                  <option>Lainnya</option>
+                </select>
+              </label>
+
+              <div className="grid gap-3 pt-1 sm:grid-cols-2">
+                <Button
+                  variant="secondary"
+                  onClick={() => {
+                    setReportEditModal(null);
+                    setReportForm(emptyReportForm);
+                  }}
+                >
+                  Batal
+                </Button>
+                <Button onClick={() => void saveReportEdit()} disabled={savingAction === "report-edit" || !reportForm.soldPrice || !reportForm.soldAt}>
+                  {savingAction === "report-edit" ? "Menyimpan..." : "Simpan Laporan"}
                 </Button>
               </div>
             </div>

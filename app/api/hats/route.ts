@@ -37,17 +37,27 @@ function getClients() {
 
 async function getWorkspace(request: Request) {
   const clients = getClients();
-  if (!clients) return { error: "SUPABASE_SERVICE_ROLE_KEY belum disiapkan.", workspaceUserId: null, adminClient: null };
+  if (!clients) return { error: "SUPABASE_SERVICE_ROLE_KEY belum disiapkan.", workspaceUserId: null, adminClient: null, requester: null };
 
   const token = request.headers.get("authorization")?.replace(/^Bearer\s+/i, "");
-  if (!token) return { error: "Sesi login tidak ditemukan.", workspaceUserId: null, adminClient: null };
+  if (!token) return { error: "Sesi login tidak ditemukan.", workspaceUserId: null, adminClient: null, requester: null };
 
   const { data, error } = await clients.authClient.auth.getUser(token);
-  if (error || !data.user) return { error: "Sesi login tidak valid.", workspaceUserId: null, adminClient: null };
-  if (data.user.app_metadata?.status === "INACTIVE") return { error: "User ini sedang nonaktif.", workspaceUserId: null, adminClient: null };
+  if (error || !data.user) return { error: "Sesi login tidak valid.", workspaceUserId: null, adminClient: null, requester: null };
+  if (data.user.app_metadata?.status === "INACTIVE") return { error: "User ini sedang nonaktif.", workspaceUserId: null, adminClient: null, requester: null };
 
   const workspaceUserId = String(data.user.app_metadata?.created_by || data.user.id);
-  return { error: null, workspaceUserId, adminClient: clients.adminClient };
+  return { error: null, workspaceUserId, adminClient: clients.adminClient, requester: data.user };
+}
+
+function isOwner(user: Awaited<ReturnType<typeof getWorkspace>>["requester"]) {
+  if (!user) return false;
+  return typeof user.app_metadata?.created_by !== "string" || user.app_metadata?.role === "Owner";
+}
+
+function isReportCorrection(updates: Record<string, unknown>) {
+  const updatesSoldFields = "sold_price" in updates || "sold_at" in updates;
+  return updates.status === "AVAILABLE" || (updatesSoldFields && updates.status !== "SOLD");
 }
 
 export async function GET(request: Request) {
@@ -92,13 +102,16 @@ export async function POST(request: Request) {
 }
 
 export async function PATCH(request: Request) {
-  const { error: authError, workspaceUserId, adminClient } = await getWorkspace(request);
+  const { error: authError, workspaceUserId, adminClient, requester } = await getWorkspace(request);
   if (authError || !workspaceUserId || !adminClient) return jsonError(authError || "Unauthorized", 401);
 
   const body = await request.json();
   const id = String(body.id || "");
   const updates = body.updates || {};
   if (!id) return jsonError("ID topi wajib dikirim.");
+  if (isReportCorrection(updates) && !isOwner(requester)) {
+    return jsonError("Hanya Owner yang bisa mengubah atau menghapus laporan SOLD.", 403);
+  }
 
   const { data, error } = await adminClient
     .from("hats")
