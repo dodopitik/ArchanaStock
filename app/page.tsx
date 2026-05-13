@@ -113,14 +113,13 @@ type BulkItem = {
   costPrice: number;
 };
 
-type LoginMode = "login" | "register";
 type ImageTarget = "add" | "edit";
 type ChartPoint = {
   label: string;
   value: number;
   helper: string;
 };
-type ReportPeriod = "daily" | "weekly" | "monthly";
+type ReportPeriod = "all" | "daily" | "weekly" | "monthly";
 
 type ReportRange = {
   title: string;
@@ -128,6 +127,7 @@ type ReportRange = {
   start: string;
   end: string;
   fileName: string;
+  isAll?: boolean;
 };
 
 type AuthLikeUser = {
@@ -334,22 +334,36 @@ function formatDisplayDate(value: string) {
   }).format(parseDateInputValue(value));
 }
 
-function getReportRange(period: ReportPeriod): ReportRange {
+function getReportRange(period: ReportPeriod, selectedDate?: string, selectedMonth?: string): ReportRange {
   const today = new Date();
   const todayValue = toDateInputValue(today);
 
+  if (period === "all") {
+    return {
+      title: "Laporan Seluruh Penjualan",
+      subtitle: "Semua periode transaksi SOLD",
+      start: "",
+      end: "",
+      fileName: "archana-caps-laporan-seluruh-penjualan",
+      isAll: true,
+    };
+  }
+
   if (period === "daily") {
+    const dateValue = selectedDate && /^\d{4}-\d{2}-\d{2}$/.test(selectedDate) ? selectedDate : todayValue;
+
     return {
       title: "Laporan Harian",
-      subtitle: formatDisplayDate(todayValue),
-      start: todayValue,
-      end: todayValue,
-      fileName: `archana-caps-laporan-harian-${todayValue}`,
+      subtitle: formatDisplayDate(dateValue),
+      start: dateValue,
+      end: dateValue,
+      fileName: `archana-caps-laporan-harian-${dateValue}`,
     };
   }
 
   if (period === "weekly") {
-    const startDate = new Date(today);
+    const dateValue = selectedDate && /^\d{4}-\d{2}-\d{2}$/.test(selectedDate) ? selectedDate : todayValue;
+    const startDate = parseDateInputValue(dateValue);
     const day = startDate.getDay() || 7;
     startDate.setDate(startDate.getDate() - day + 1);
 
@@ -368,14 +382,16 @@ function getReportRange(period: ReportPeriod): ReportRange {
     };
   }
 
-  const startDate = new Date(today.getFullYear(), today.getMonth(), 1);
-  const endDate = new Date(today.getFullYear(), today.getMonth() + 1, 0);
+  const monthValue = selectedMonth && /^\d{4}-\d{2}$/.test(selectedMonth) ? selectedMonth : todayValue.slice(0, 7);
+  const [monthYear, monthIndex] = monthValue.split("-").map(Number);
+  const startDate = new Date(monthYear, monthIndex - 1, 1);
+  const endDate = new Date(monthYear, monthIndex, 0);
   const start = toDateInputValue(startDate);
   const end = toDateInputValue(endDate);
 
   return {
     title: "Laporan Bulanan",
-    subtitle: new Intl.DateTimeFormat("id-ID", { month: "long", year: "numeric" }).format(today),
+    subtitle: new Intl.DateTimeFormat("id-ID", { month: "long", year: "numeric" }).format(startDate),
     start,
     end,
     fileName: `archana-caps-laporan-bulanan-${start.slice(0, 7)}`,
@@ -389,6 +405,24 @@ function escapeHtml(value: string) {
     .replace(/>/g, "&gt;")
     .replace(/"/g, "&quot;")
     .replace(/'/g, "&#039;");
+}
+
+function getAuthErrorMessage(message: string) {
+  const normalized = message.toLowerCase();
+
+  if (normalized.includes("invalid login credentials") || normalized.includes("invalid credentials")) {
+    return "Email atau password salah.";
+  }
+
+  if (normalized.includes("email not confirmed")) {
+    return "Email belum dikonfirmasi. Cek inbox email kamu dulu.";
+  }
+
+  if (normalized.includes("too many requests")) {
+    return "Terlalu banyak percobaan login. Coba lagi beberapa saat.";
+  }
+
+  return message || "Login gagal. Coba lagi.";
 }
 
 function resizeImageFile(file: File) {
@@ -486,7 +520,7 @@ function MetricCard({ icon: Icon, label, value, helper }: { icon: LucideIcon; la
       <div className="flex items-start justify-between gap-4">
         <div className="min-w-0">
           <p className="text-sm font-medium text-slate-500">{label}</p>
-          <p className="mt-2 truncate text-2xl font-bold text-slate-950">{value}</p>
+          <p className="mt-2 break-words text-[clamp(1.15rem,2vw,1.5rem)] font-bold leading-tight text-slate-950">{value}</p>
           <p className="mt-1 text-xs text-slate-400">{helper}</p>
         </div>
         <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-cyan-50 text-cyan-700">
@@ -619,52 +653,48 @@ function PlatformBreakdown({ data }: { data: ChartPoint[] }) {
 function LoginScreen({
   email,
   password,
-  mode,
   loading,
   message,
   onEmailChange,
   onPasswordChange,
-  onModeChange,
   onSubmit,
 }: {
   email: string;
   password: string;
-  mode: LoginMode;
   loading: boolean;
   message: string;
   onEmailChange: (value: string) => void;
   onPasswordChange: (value: string) => void;
-  onModeChange: (mode: LoginMode) => void;
   onSubmit: () => void;
 }) {
   return (
     <main className="grid min-h-screen place-items-center bg-[#f4f1ed] p-3 sm:p-5">
       <section className="grid w-full max-w-6xl overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl md:grid-cols-[minmax(0,1.08fr)_440px]">
-        <div className="relative overflow-hidden bg-slate-950 p-6 text-white sm:p-8 md:p-10">
-          <div className="absolute inset-x-0 bottom-0 h-40 bg-red-700/30" />
-          <div className="relative z-10 flex min-h-[420px] flex-col justify-between gap-8 md:min-h-[520px] md:gap-10">
+        <div className="relative overflow-hidden bg-slate-950 p-5 text-white sm:p-8 md:p-10">
+          <div className="absolute inset-x-0 bottom-0 h-28 bg-red-700/30 sm:h-40" />
+          <div className="relative z-10 flex min-h-[260px] flex-col justify-between gap-6 sm:min-h-[360px] md:min-h-[520px] md:gap-10">
             <div>
-              <Image src={logoSrc} alt={storeName} width={320} height={240} className="h-auto w-44 object-contain sm:w-56" priority />
-              <p className="mt-8 text-sm font-black uppercase text-red-300">Inventory Dashboard</p>
-              <h1 className="mt-3 max-w-xl text-3xl font-black leading-tight text-white sm:text-4xl md:text-5xl md:leading-none">
+              <Image src={logoSrc} alt={storeName} width={320} height={240} className="h-auto w-36 object-contain sm:w-48 md:w-56" priority />
+              <p className="mt-5 text-xs font-black uppercase text-red-300 sm:mt-8 sm:text-sm">Inventory Dashboard</p>
+              <h1 className="mt-2 max-w-xl text-2xl font-black leading-tight text-white sm:mt-3 sm:text-4xl md:text-5xl md:leading-none">
                 Inventory cockpit untuk stok dan penjualan topi.
               </h1>
-              <p className="mt-5 max-w-lg text-sm leading-6 text-slate-300">
+              <p className="mt-3 max-w-lg text-sm leading-6 text-slate-300 sm:mt-5">
                 Kelola topi masuk, stok available, item sold, nota, dan laporan omzet dalam satu dashboard yang siap dipakai harian.
               </p>
             </div>
 
-            <div className="grid gap-3 min-[430px]:grid-cols-3">
-              <div className="rounded-xl border border-white/10 bg-white/10 p-4">
-                <p className="text-2xl font-black">Live</p>
+            <div className="grid gap-2 min-[430px]:grid-cols-3 sm:gap-3">
+              <div className="rounded-xl border border-white/10 bg-white/10 p-3 sm:p-4">
+                <p className="text-xl font-black sm:text-2xl">Live</p>
                 <p className="mt-1 text-xs font-semibold text-slate-300">Stok tersimpan per akun</p>
               </div>
-              <div className="rounded-xl border border-white/10 bg-white/10 p-4">
-                <p className="text-2xl font-black">PDF</p>
+              <div className="rounded-xl border border-white/10 bg-white/10 p-3 sm:p-4">
+                <p className="text-xl font-black sm:text-2xl">PDF</p>
                 <p className="mt-1 text-xs font-semibold text-slate-300">Nota siap cetak</p>
               </div>
-              <div className="rounded-xl border border-white/10 bg-white/10 p-4">
-                <p className="text-2xl font-black">Report</p>
+              <div className="rounded-xl border border-white/10 bg-white/10 p-3 sm:p-4">
+                <p className="text-xl font-black sm:text-2xl">Report</p>
                 <p className="mt-1 text-xs font-semibold text-slate-300">Omzet dan profit</p>
               </div>
             </div>
@@ -672,9 +702,9 @@ function LoginScreen({
         </div>
 
         <div className="grid content-center p-4 sm:p-7 md:p-8">
-          <div className="mb-7">
-            <p className="text-sm font-bold text-red-600">{mode === "login" ? "Welcome back" : "Create workspace"}</p>
-            <h2 className="mt-2 text-3xl font-black text-slate-950">{mode === "login" ? "Masuk ke dashboard" : "Daftar akun baru"}</h2>
+          <div className="mb-5 sm:mb-7">
+            <p className="text-sm font-bold text-red-600">Welcome back</p>
+            <h2 className="mt-2 text-2xl font-black text-slate-950 sm:text-3xl">Masuk ke dashboard</h2>
             <p className="mt-2 text-sm leading-6 text-slate-500">Gunakan email yang terdaftar untuk mengakses data toko kamu.</p>
           </div>
 
@@ -688,23 +718,6 @@ function LoginScreen({
                 </p>
               </div>
             </div>
-          </div>
-
-          <div className="flex rounded-lg bg-slate-100 p-1">
-            <button
-              type="button"
-              onClick={() => onModeChange("login")}
-              className={`h-10 flex-1 rounded-md text-sm font-bold transition ${mode === "login" ? "bg-white text-slate-950 shadow-sm" : "text-slate-500"}`}
-            >
-              Login
-            </button>
-            <button
-              type="button"
-              onClick={() => onModeChange("register")}
-              className={`h-10 flex-1 rounded-md text-sm font-bold transition ${mode === "register" ? "bg-white text-slate-950 shadow-sm" : "text-slate-500"}`}
-            >
-              Register
-            </button>
           </div>
 
           <div className="mt-6 grid gap-4">
@@ -734,7 +747,7 @@ function LoginScreen({
 
             <Button onClick={onSubmit} disabled={loading || !email || !password} className="w-full">
               <User size={17} />
-              {loading ? "Memproses..." : mode === "login" ? "Masuk" : "Buat Akun"}
+              {loading ? "Memproses..." : "Masuk"}
             </Button>
           </div>
         </div>
@@ -746,6 +759,7 @@ function LoginScreen({
 export default function ThriftHatInventoryApp() {
   const mounted = useSyncExternalStore(subscribeToClientReady, getClientSnapshot, getServerSnapshot);
   const [activeView, setActiveView] = useState<ViewKey>("dashboard");
+  const [mobileNavVisible, setMobileNavVisible] = useState(true);
   const [stockView, setStockView] = useState<StockView>("list");
   const [hats, setHats] = useState<Hat[]>(initialHats);
   const [users, setUsers] = useState<ManagedUser[]>(initialUsers);
@@ -753,17 +767,20 @@ export default function ThriftHatInventoryApp() {
   const [soldModal, setSoldModal] = useState<Hat | null>(null);
   const [editModal, setEditModal] = useState<Hat | null>(null);
   const [reportEditModal, setReportEditModal] = useState<Hat | null>(null);
+  const [logoutConfirmOpen, setLogoutConfirmOpen] = useState(false);
   const [editForm, setEditForm] = useState<FormState>(emptyForm);
   const [reportForm, setReportForm] = useState<ReportFormState>(emptyReportForm);
   const [userForm, setUserForm] = useState<UserFormState>(emptyUserForm);
   const [editingUserId, setEditingUserId] = useState<string | null>(null);
   const [soldPrice, setSoldPrice] = useState("");
   const [platform, setPlatform] = useState("Shopee");
+  const [reportPeriod, setReportPeriod] = useState<ReportPeriod>("all");
+  const [reportDate, setReportDate] = useState(() => toDateInputValue(new Date()));
+  const [reportMonth, setReportMonth] = useState(() => toDateInputValue(new Date()).slice(0, 7));
   const [form, setForm] = useState<FormState>(emptyForm);
   const [bulkText, setBulkText] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [loginMode, setLoginMode] = useState<LoginMode>("login");
   const [currentUser, setCurrentUser] = useState<string | null>(null);
   const [canManageUserMenu, setCanManageUserMenu] = useState(false);
   const [canManageReportActions, setCanManageReportActions] = useState(false);
@@ -787,6 +804,19 @@ export default function ThriftHatInventoryApp() {
 
   const supabase = useMemo(() => getSupabaseClient(), []);
 
+  useEffect(() => {
+    let lastScrollY = window.scrollY;
+
+    function handleScroll() {
+      const currentScrollY = window.scrollY;
+      setMobileNavVisible(currentScrollY < 24 || currentScrollY < lastScrollY);
+      lastScrollY = currentScrollY;
+    }
+
+    window.addEventListener("scroll", handleScroll, { passive: true });
+    return () => window.removeEventListener("scroll", handleScroll);
+  }, []);
+
   const stats = useMemo(() => {
     const available = hats.filter((hat) => hat.status === "AVAILABLE");
     const sold = hats.filter((hat) => hat.status === "SOLD");
@@ -802,7 +832,22 @@ export default function ThriftHatInventoryApp() {
     .filter((hat) => hat.status === "AVAILABLE")
     .filter((hat) => `${hat.code} ${hat.name}`.toLowerCase().includes(query.toLowerCase()));
 
-  const soldHats = hats.filter((hat) => hat.status === "SOLD");
+  const soldHats = useMemo(
+    () =>
+      hats
+        .filter((hat) => hat.status === "SOLD")
+        .sort((hatA, hatB) => `${hatB.soldAt || ""}${hatB.code}`.localeCompare(`${hatA.soldAt || ""}${hatA.code}`)),
+    [hats]
+  );
+  const activeReportRange = useMemo(() => getReportRange(reportPeriod, reportDate, reportMonth), [reportDate, reportMonth, reportPeriod]);
+  const filteredReportHats = useMemo(
+    () =>
+      soldHats.filter((hat) => {
+        if (activeReportRange.isAll) return true;
+        return Boolean(hat.soldAt && hat.soldAt >= activeReportRange.start && hat.soldAt <= activeReportRange.end);
+      }),
+    [activeReportRange, soldHats]
+  );
   const bulkItems = useMemo(() => parseBulkItems(bulkText), [bulkText]);
   const salesChart = useMemo(() => {
     const salesByDate = new Map<string, { revenue: number; count: number }>();
@@ -920,13 +965,10 @@ export default function ThriftHatInventoryApp() {
       return;
     }
 
-    const result =
-      loginMode === "login"
-        ? await supabase.auth.signInWithPassword({ email, password })
-        : await supabase.auth.signUp({ email, password });
+    const result = await supabase.auth.signInWithPassword({ email, password });
 
     if (result.error) {
-      setMessage(result.error.message);
+      setMessage(getAuthErrorMessage(result.error.message));
     } else if (result.data.user?.app_metadata?.status === "INACTIVE") {
       await supabase.auth.signOut();
       setMessage("User ini sedang nonaktif. Hubungi admin toko.");
@@ -935,7 +977,7 @@ export default function ThriftHatInventoryApp() {
       setCanManageUserMenu(canManageUsers(result.data.user));
       setCanManageReportActions(canManageReports(result.data.user));
       if (!canManageUsers(result.data.user)) setActiveView("dashboard");
-      setDbMessage(loginMode === "register" ? "Akun dibuat. Cek email jika konfirmasi aktif di Supabase." : "Login Supabase berhasil.");
+      setDbMessage("Login Supabase berhasil.");
     }
 
     setLoading(false);
@@ -950,6 +992,7 @@ export default function ThriftHatInventoryApp() {
     setHats(initialHats);
     setUsers(initialUsers);
     setActiveView("dashboard");
+    setLogoutConfirmOpen(false);
   }
 
   useEffect(() => {
@@ -1815,11 +1858,11 @@ export default function ThriftHatInventoryApp() {
     setDeletingUserId(null);
   }
 
-  function printSalesReport(period: ReportPeriod) {
-    const range = getReportRange(period);
+  function printSalesReport(period: ReportPeriod, rangeOverride?: ReportRange) {
+    const range = rangeOverride || getReportRange(period, reportDate, reportMonth);
     const reportHats = soldHats
-      .filter((hat) => hat.soldAt && hat.soldAt >= range.start && hat.soldAt <= range.end)
-      .sort((hatA, hatB) => `${hatA.soldAt || ""}${hatA.code}`.localeCompare(`${hatB.soldAt || ""}${hatB.code}`));
+      .filter((hat) => range.isAll || Boolean(hat.soldAt && hat.soldAt >= range.start && hat.soldAt <= range.end))
+      .sort((hatA, hatB) => `${hatB.soldAt || ""}${hatB.code}`.localeCompare(`${hatA.soldAt || ""}${hatA.code}`));
     const revenue = reportHats.reduce((sum, hat) => sum + (hat.soldPrice || 0), 0);
     const cost = reportHats.reduce((sum, hat) => sum + hat.costPrice, 0);
     const profit = revenue - cost;
@@ -2072,8 +2115,8 @@ export default function ThriftHatInventoryApp() {
       <section class="summary" style="margin-top: 18px;">
         <div class="card"><span>Avg Profit/Item</span><strong>${formatRupiah(averageProfit)}</strong></div>
         <div class="card"><span>Margin</span><strong>${revenue ? Math.round((profit / revenue) * 100) : 0}%</strong></div>
-        <div class="card"><span>Periode Mulai</span><strong>${escapeHtml(formatDisplayDate(range.start))}</strong></div>
-        <div class="card"><span>Periode Akhir</span><strong>${escapeHtml(formatDisplayDate(range.end))}</strong></div>
+        <div class="card"><span>Periode Mulai</span><strong>${escapeHtml(range.isAll ? "-" : formatDisplayDate(range.start))}</strong></div>
+        <div class="card"><span>Periode Akhir</span><strong>${escapeHtml(range.isAll ? "-" : formatDisplayDate(range.end))}</strong></div>
       </section>
 
       <section class="signatures">
@@ -2108,12 +2151,10 @@ export default function ThriftHatInventoryApp() {
       <LoginScreen
         email={email}
         password={password}
-        mode={loginMode}
         loading={loading}
         message={message}
         onEmailChange={setEmail}
         onPasswordChange={setPassword}
-        onModeChange={setLoginMode}
         onSubmit={handleAuth}
       />
     );
@@ -2127,10 +2168,75 @@ export default function ThriftHatInventoryApp() {
     { key: "reports", label: "Laporan", icon: BarChart3 },
   ];
 
+  function changeView(view: ViewKey) {
+    setActiveView(view);
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  }
+
   return (
     <div className="min-h-screen bg-slate-100 text-slate-950">
-      <div className="mx-auto grid w-full max-w-7xl gap-4 p-3 sm:p-4 md:gap-5 md:p-6 lg:grid-cols-[260px_minmax(0,1fr)]">
-        <aside className="h-fit rounded-2xl border border-slate-200 bg-white p-4 shadow-sm lg:sticky lg:top-6">
+      <header
+        className={`fixed inset-x-0 top-0 z-40 border-b border-slate-200 bg-white/95 shadow-sm backdrop-blur transition-transform duration-300 lg:hidden ${
+          mobileNavVisible ? "translate-y-0" : "-translate-y-full"
+        }`}
+      >
+        <div className="grid gap-2 p-3">
+          <div className="flex items-center justify-between gap-3">
+            <div className="flex min-w-0 items-center gap-3">
+              <Image src={logoSrc} alt={storeName} width={120} height={84} className="h-10 w-auto shrink-0 object-contain" priority />
+              <div className="min-w-0">
+                <p className="text-sm font-black text-slate-950">{storeName}</p>
+                <p className="truncate text-xs font-medium text-slate-500">{currentUser}</p>
+              </div>
+            </div>
+            <div className="flex shrink-0 gap-2">
+              <button
+                type="button"
+                onClick={refreshData}
+                disabled={!supabase || dataLoading}
+                title="Refresh"
+                aria-label="Refresh data"
+                className="grid h-10 w-10 place-items-center rounded-lg border border-slate-200 bg-white text-slate-700 transition hover:bg-slate-50 disabled:pointer-events-none disabled:opacity-50"
+              >
+                <RefreshCw size={17} />
+              </button>
+              <button
+                type="button"
+                onClick={() => setLogoutConfirmOpen(true)}
+                title="Logout"
+                aria-label="Logout"
+                className="grid h-10 w-10 place-items-center rounded-lg bg-slate-950 text-white transition hover:bg-slate-800"
+              >
+                <LogOut size={17} />
+              </button>
+            </div>
+          </div>
+
+          <nav className="grid grid-cols-5 gap-1">
+            {navItems.map((item) => {
+              const Icon = item.icon;
+
+              return (
+                <button
+                  key={item.key}
+                  type="button"
+                  onClick={() => changeView(item.key)}
+                  title={item.label}
+                  aria-label={item.label}
+                  className={`grid h-11 place-items-center rounded-lg transition ${
+                    activeView === item.key ? "bg-slate-950 text-white" : "text-slate-500 hover:bg-slate-100 hover:text-slate-950"
+                  }`}
+                >
+                  <Icon size={19} />
+                </button>
+              );
+            })}
+          </nav>
+        </div>
+      </header>
+
+      <div className="mx-auto grid w-full max-w-7xl gap-4 p-3 pt-28 sm:p-4 sm:pt-28 md:gap-5 md:p-6 md:pt-28 lg:grid-cols-[260px_minmax(0,1fr)] lg:pt-6">
+        <aside className="hidden h-fit rounded-2xl border border-slate-200 bg-white p-4 shadow-sm lg:sticky lg:top-6 lg:block">
           <div className="grid gap-3 border-b border-slate-100 pb-4">
             <Image src={logoSrc} alt={storeName} width={220} height={160} className="h-auto w-36 object-contain" priority />
             <p className="truncate text-xs font-medium text-slate-500">{currentUser}</p>
@@ -2143,7 +2249,7 @@ export default function ThriftHatInventoryApp() {
                 icon={item.icon}
                 label={item.label}
                 active={activeView === item.key}
-                onClick={() => setActiveView(item.key)}
+                onClick={() => changeView(item.key)}
               />
             ))}
           </nav>
@@ -2163,7 +2269,7 @@ export default function ThriftHatInventoryApp() {
               <RefreshCw size={16} />
               {dataLoading ? "Loading..." : "Refresh"}
             </Button>
-            <Button variant="ghost" onClick={logout}>
+            <Button variant="ghost" onClick={() => setLogoutConfirmOpen(true)}>
               <LogOut size={16} />
               Logout
             </Button>
@@ -2589,27 +2695,73 @@ export default function ThriftHatInventoryApp() {
                 <SectionHeader
                   icon={BarChart3}
                   title="Laporan Penjualan"
-                  description="Data item terjual dan profit per item."
+                  description="Data item terjual terbaru, bisa dilihat semua periode atau difilter per hari, minggu, dan bulan."
                   action={
-                    <div className="grid gap-2 sm:grid-cols-3">
-                      <Button variant="secondary" onClick={() => printSalesReport("daily")} className="w-full whitespace-nowrap px-3">
+                    <div className="grid gap-2">
+                      <Button variant="secondary" onClick={() => printSalesReport(reportPeriod, activeReportRange)} className="w-full whitespace-nowrap px-3">
                         <Printer size={16} />
-                        Harian
-                      </Button>
-                      <Button variant="secondary" onClick={() => printSalesReport("weekly")} className="w-full whitespace-nowrap px-3">
-                        <Printer size={16} />
-                        Mingguan
-                      </Button>
-                      <Button variant="secondary" onClick={() => printSalesReport("monthly")} className="w-full whitespace-nowrap px-3">
-                        <Printer size={16} />
-                        Bulanan
+                        Cetak PDF
                       </Button>
                     </div>
                   }
                 />
 
+                <div className="mb-5 grid gap-4 rounded-xl border border-slate-200 bg-slate-50 p-4">
+                  <div className="grid gap-2 sm:grid-cols-4">
+                    {[
+                      { key: "all", label: "Semua" },
+                      { key: "daily", label: "Harian" },
+                      { key: "weekly", label: "Mingguan" },
+                      { key: "monthly", label: "Bulanan" },
+                    ].map((item) => (
+                      <button
+                        key={item.key}
+                        type="button"
+                        onClick={() => setReportPeriod(item.key as ReportPeriod)}
+                        className={`h-10 rounded-lg text-sm font-black transition ${
+                          reportPeriod === item.key ? "bg-slate-950 text-white shadow-sm" : "bg-white text-slate-600 hover:bg-slate-100"
+                        }`}
+                      >
+                        {item.label}
+                      </button>
+                    ))}
+                  </div>
+
+                  {reportPeriod !== "all" && (
+                    <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
+                      {(reportPeriod === "daily" || reportPeriod === "weekly") && (
+                        <label className="grid gap-2 text-sm font-semibold text-slate-700">
+                          {reportPeriod === "weekly" ? "Tanggal acuan minggu" : "Pilih hari"}
+                          <input
+                            type="date"
+                            value={reportDate}
+                            onChange={(event) => setReportDate(event.target.value)}
+                            className="h-11 rounded-lg border border-slate-200 bg-white px-3 text-sm font-medium outline-none transition focus:border-cyan-500 focus:ring-4 focus:ring-cyan-100"
+                          />
+                        </label>
+                      )}
+                      {reportPeriod === "monthly" && (
+                        <label className="grid gap-2 text-sm font-semibold text-slate-700">
+                          Pilih bulan
+                          <input
+                            type="month"
+                            value={reportMonth}
+                            onChange={(event) => setReportMonth(event.target.value)}
+                            className="h-11 rounded-lg border border-slate-200 bg-white px-3 text-sm font-medium outline-none transition focus:border-cyan-500 focus:ring-4 focus:ring-cyan-100"
+                          />
+                        </label>
+                      )}
+                      <div className="rounded-lg bg-white p-3">
+                        <p className="text-xs font-bold uppercase text-slate-400">Periode Aktif</p>
+                        <p className="mt-1 text-sm font-black text-slate-950">{activeReportRange.subtitle}</p>
+                      </div>
+                    </div>
+                  )}
+
+                </div>
+
                 <div className="grid gap-3 lg:hidden">
-                  {soldHats.map((hat) => (
+                  {filteredReportHats.map((hat) => (
                     <article key={hat.id} className="rounded-xl border border-slate-200 bg-white p-4">
                       <div className="flex items-start justify-between gap-3">
                         <div className="min-w-0">
@@ -2656,9 +2808,9 @@ export default function ThriftHatInventoryApp() {
                       </div>
                     </article>
                   ))}
-                  {!soldHats.length && (
+                  {!filteredReportHats.length && (
                     <div className="rounded-xl border border-dashed border-slate-300 p-8 text-center text-sm font-medium text-slate-500">
-                      Belum ada item SOLD.
+                      Belum ada item SOLD pada periode ini.
                     </div>
                   )}
                 </div>
@@ -2677,7 +2829,7 @@ export default function ThriftHatInventoryApp() {
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100 bg-white">
-                      {soldHats.map((hat) => (
+                      {filteredReportHats.map((hat) => (
                         <tr key={hat.id}>
                           <td className="px-4 py-4 font-semibold text-slate-500">{hat.code}</td>
                           <td className="px-4 py-4">
@@ -2709,10 +2861,10 @@ export default function ThriftHatInventoryApp() {
                           )}
                         </tr>
                       ))}
-                      {!soldHats.length && (
+                      {!filteredReportHats.length && (
                         <tr>
                           <td colSpan={canManageReportActions ? 7 : 6} className="px-4 py-10 text-center text-sm font-medium text-slate-500">
-                            Belum ada item SOLD.
+                            Belum ada item SOLD pada periode ini.
                           </td>
                         </tr>
                       )}
@@ -2748,6 +2900,45 @@ export default function ThriftHatInventoryApp() {
           )}
         </main>
       </div>
+
+      {logoutConfirmOpen && (
+        <div className="fixed inset-0 z-[60] grid place-items-center bg-slate-950/60 p-4 backdrop-blur-sm">
+          <motion.div
+            initial={{ opacity: 0, y: 14, scale: 0.96 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            className="w-full max-w-sm overflow-hidden rounded-2xl bg-white shadow-2xl"
+          >
+            <div className="bg-slate-950 p-5 text-white">
+              <div className="flex items-start gap-4">
+                <div className="grid h-12 w-12 shrink-0 place-items-center rounded-xl bg-white/10 text-red-200">
+                  <LogOut size={22} />
+                </div>
+                <div className="min-w-0">
+                  <h3 className="text-xl font-black">Logout dashboard?</h3>
+                  <p className="mt-1 text-sm leading-6 text-slate-300">Sesi kamu akan ditutup dan kembali ke halaman login.</p>
+                </div>
+              </div>
+            </div>
+
+            <div className="grid gap-4 p-5">
+              <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+                <p className="text-xs font-bold uppercase text-slate-400">Akun aktif</p>
+                <p className="mt-1 truncate text-sm font-black text-slate-950">{currentUser}</p>
+              </div>
+
+              <div className="grid gap-3 sm:grid-cols-2">
+                <Button variant="secondary" onClick={() => setLogoutConfirmOpen(false)}>
+                  Batal
+                </Button>
+                <Button onClick={() => void logout()} className="bg-red-600 hover:bg-red-700">
+                  <LogOut size={16} />
+                  Ya, Logout
+                </Button>
+              </div>
+            </div>
+          </motion.div>
+        </div>
+      )}
 
       {soldModal && (
         <div className="fixed inset-0 z-50 grid place-items-center bg-slate-950/50 p-4 backdrop-blur-sm">
