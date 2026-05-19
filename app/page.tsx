@@ -5,6 +5,8 @@ import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore
 import { motion } from "framer-motion";
 import Image from "next/image";
 import {
+  ArrowDownCircle,
+  ArrowUpCircle,
   BarChart3,
   Boxes,
   CheckCircle2,
@@ -16,15 +18,20 @@ import {
   ImagePlus,
   Grid2X2,
   Grid3X3,
+  Info,
+  Landmark,
   Pencil,
   LayoutDashboard,
   List,
   LogOut,
   Mail,
   PackagePlus,
+  PiggyBank,
   Printer,
   RefreshCw,
+  Repeat,
   Search,
+  Settings,
   ShieldCheck,
   Tag,
   Trash2,
@@ -38,7 +45,7 @@ import {
 import { getSupabaseClient, isSupabaseConfigured } from "@/lib/supabase";
 
 type HatStatus = "AVAILABLE" | "SOLD";
-type ViewKey = "dashboard" | "add" | "stock" | "users" | "reports";
+type ViewKey = "dashboard" | "add" | "stock" | "users" | "reports" | "finance" | "config";
 type StockView = "list" | "grid2" | "grid4";
 type ManagedUserStatus = "ACTIVE" | "INACTIVE";
 
@@ -108,6 +115,20 @@ type ReportFormState = {
   soldAt: string;
 };
 
+type Expense = {
+  id: string;
+  label: string;
+  amount: number;
+  type: "owner_draw" | "operational";
+  date: string;
+};
+
+type ExpenseFormState = {
+  label: string;
+  amount: string;
+  type: "owner_draw" | "operational";
+};
+
 type BulkItem = {
   name: string;
   costPrice: number;
@@ -140,65 +161,9 @@ const logoSrc = "/archana-caps-logo.png";
 const defaultImage =
   "https://images.unsplash.com/photo-1521369909029-2afed882baee?q=80&w=800&auto=format&fit=crop";
 
-const initialHats: Hat[] = [
-  {
-    id: "demo-1",
-    code: "HT0001",
-    name: "Nike Vintage Navy Cap",
-    costPrice: 45000,
-    status: "AVAILABLE",
-    soldPrice: null,
-    platform: "",
-    boughtAt: "2026-05-01",
-    soldAt: null,
-    image: defaultImage,
-  },
-  {
-    id: "demo-2",
-    code: "HT0002",
-    name: "New Era Black Snapback",
-    costPrice: 60000,
-    status: "AVAILABLE",
-    soldPrice: null,
-    platform: "",
-    boughtAt: "2026-05-02",
-    soldAt: null,
-    image: "https://images.unsplash.com/photo-1572307480813-ceb0e59d8325?q=80&w=800&auto=format&fit=crop",
-  },
-  {
-    id: "demo-3",
-    code: "HT0003",
-    name: "Adidas Red Sport Cap",
-    costPrice: 35000,
-    status: "SOLD",
-    soldPrice: 95000,
-    platform: "Shopee",
-    boughtAt: "2026-05-02",
-    soldAt: "2026-05-05",
-    image: "https://images.unsplash.com/photo-1514327605112-b887c0e61c0a?q=80&w=800&auto=format&fit=crop",
-  },
-];
+const initialHats: Hat[] = [];
 
-const initialUsers: ManagedUser[] = [
-  {
-    id: "demo-user-1",
-    authUserId: null,
-    name: "Admin Archana",
-    email: "admin@archanacaps.test",
-    role: "Owner",
-    status: "ACTIVE",
-    createdAt: "2026-05-01T00:00:00+07:00",
-  },
-  {
-    id: "demo-user-2",
-    authUserId: null,
-    name: "Staff Packing",
-    email: "staff@archanacaps.test",
-    role: "Staff",
-    status: "ACTIVE",
-    createdAt: "2026-05-02T00:00:00+07:00",
-  },
-];
+const initialUsers: ManagedUser[] = [];
 
 const emptyForm: FormState = {
   name: "",
@@ -219,6 +184,64 @@ const emptyReportForm: ReportFormState = {
   platform: "Shopee",
   soldAt: "",
 };
+
+const emptyExpenseForm: ExpenseFormState = {
+  label: "",
+  amount: "",
+  type: "operational",
+};
+
+type FinanceConfig = {
+  biayaOperasionalPerItem: number;
+  persenPutarModal: number;
+  persenOwner: number;
+  persenTabungan: number;
+};
+
+type FinanceConfigEntry = FinanceConfig & {
+  berlakuMulai: string; // date string YYYY-MM-DD
+};
+
+const DEFAULT_FINANCE_CONFIG: FinanceConfig = {
+  biayaOperasionalPerItem: 4000,
+  persenPutarModal: 70,
+  persenOwner: 20,
+  persenTabungan: 10,
+};
+
+const FINANCE_CONFIG_KEY = "archana-caps-finance-config-history";
+
+function loadFinanceConfigHistory(): FinanceConfigEntry[] {
+  if (typeof window === "undefined") return [];
+  try {
+    const stored = window.localStorage.getItem(FINANCE_CONFIG_KEY);
+    if (!stored) return [];
+    const parsed = JSON.parse(stored);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+function saveFinanceConfigHistory(history: FinanceConfigEntry[]) {
+  window.localStorage.setItem(FINANCE_CONFIG_KEY, JSON.stringify(history));
+}
+
+/** Get the config that was active on a given date */
+function getConfigForDate(date: string | null, history: FinanceConfigEntry[]): FinanceConfig {
+  if (!date || !history.length) return DEFAULT_FINANCE_CONFIG;
+  // History sorted newest first — find the first entry where berlakuMulai <= date
+  const sorted = [...history].sort((a, b) => b.berlakuMulai.localeCompare(a.berlakuMulai));
+  const match = sorted.find((entry) => entry.berlakuMulai <= date);
+  return match || DEFAULT_FINANCE_CONFIG;
+}
+
+/** Get the currently active config (latest entry or default) */
+function getCurrentConfig(history: FinanceConfigEntry[]): FinanceConfig {
+  if (!history.length) return DEFAULT_FINANCE_CONFIG;
+  const sorted = [...history].sort((a, b) => b.berlakuMulai.localeCompare(a.berlakuMulai));
+  return sorted[0];
+}
 
 function subscribeToClientReady(onStoreChange: () => void) {
   const timeoutId = window.setTimeout(onStoreChange, 0);
@@ -650,6 +673,20 @@ function PlatformBreakdown({ data }: { data: ChartPoint[] }) {
   );
 }
 
+function FormulaTooltip({ formula }: { formula: string }) {
+  return (
+    <div className="group/tip relative ml-auto shrink-0">
+      <div className="grid h-6 w-6 cursor-help place-items-center rounded-full text-slate-300 transition group-hover/tip:bg-slate-100 group-hover/tip:text-slate-500">
+        <Info size={14} />
+      </div>
+      <div className="pointer-events-none absolute bottom-full right-0 z-20 mb-2 w-max max-w-[240px] rounded-lg border border-slate-200 bg-slate-900 px-3 py-2 text-xs font-medium leading-5 text-white opacity-0 shadow-lg transition group-hover/tip:pointer-events-auto group-hover/tip:opacity-100">
+        {formula}
+        <div className="absolute -bottom-1 right-3 h-2 w-2 rotate-45 border-b border-r border-slate-200 bg-slate-900" />
+      </div>
+    </div>
+  );
+}
+
 function LoginScreen({
   email,
   password,
@@ -777,8 +814,18 @@ export default function ThriftHatInventoryApp() {
   const [reportPeriod, setReportPeriod] = useState<ReportPeriod>("all");
   const [reportDate, setReportDate] = useState(() => toDateInputValue(new Date()));
   const [reportMonth, setReportMonth] = useState(() => toDateInputValue(new Date()).slice(0, 7));
+  const [modalMasukPeriod, setModalMasukPeriod] = useState<ReportPeriod>("all");
+  const [modalMasukDate, setModalMasukDate] = useState(() => toDateInputValue(new Date()));
+  const [modalMasukMonth, setModalMasukMonth] = useState(() => toDateInputValue(new Date()).slice(0, 7));
   const [form, setForm] = useState<FormState>(emptyForm);
   const [bulkText, setBulkText] = useState("");
+  const [expenses, setExpenses] = useState<Expense[]>([]);
+  const [expenseForm, setExpenseForm] = useState<ExpenseFormState>(emptyExpenseForm);
+  const [configHistory, setConfigHistory] = useState<FinanceConfigEntry[]>([]);
+  const [financeConfig, setFinanceConfig] = useState<FinanceConfig>(DEFAULT_FINANCE_CONFIG);
+  const [configForm, setConfigForm] = useState<{ biayaOps: string; putar: string; owner: string; tabungan: string }>({
+    biayaOps: "4000", putar: "70", owner: "20", tabungan: "10",
+  });
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [currentUser, setCurrentUser] = useState<string | null>(null);
@@ -817,6 +864,20 @@ export default function ThriftHatInventoryApp() {
     return () => window.removeEventListener("scroll", handleScroll);
   }, []);
 
+  // Load finance config from localStorage
+  useEffect(() => {
+    const history = loadFinanceConfigHistory();
+    setConfigHistory(history);
+    const cfg = getCurrentConfig(history);
+    setFinanceConfig(cfg);
+    setConfigForm({
+      biayaOps: String(cfg.biayaOperasionalPerItem),
+      putar: String(cfg.persenPutarModal),
+      owner: String(cfg.persenOwner),
+      tabungan: String(cfg.persenTabungan),
+    });
+  }, []);
+
   const stats = useMemo(() => {
     const available = hats.filter((hat) => hat.status === "AVAILABLE");
     const sold = hats.filter((hat) => hat.status === "SOLD");
@@ -825,8 +886,45 @@ export default function ThriftHatInventoryApp() {
     const profit = revenue - costSold;
     const stockValue = available.reduce((sum, hat) => sum + hat.costPrice, 0);
 
-    return { available: available.length, sold: sold.length, revenue, profit, stockValue };
-  }, [hats]);
+    // Profit bersih: setiap item sold dihitung pakai config yang berlaku saat item itu terjual
+    const biayaOperasional = sold.reduce((sum, hat) => {
+      const cfg = getConfigForDate(hat.soldAt, configHistory);
+      return sum + cfg.biayaOperasionalPerItem;
+    }, 0);
+    const profitBersih = profit - biayaOperasional;
+
+    // Finance allocation: pakai config yang aktif saat ini (untuk proyeksi ke depan)
+    const alokasiBeliBaru = Math.round(profitBersih * (financeConfig.persenPutarModal / 100));
+    const alokasiOwner = Math.round(profitBersih * (financeConfig.persenOwner / 100));
+    const alokasiTabungan = Math.round(profitBersih * (financeConfig.persenTabungan / 100));
+
+    // Expenses manual
+    const totalOwnerDraw = expenses.filter((e) => e.type === "owner_draw").reduce((sum, e) => sum + e.amount, 0);
+    const totalOperational = expenses.filter((e) => e.type === "operational").reduce((sum, e) => sum + e.amount, 0);
+
+    // Restock budget: modal barang terjual + 70% profit bersih
+    const soldWithDates = sold.filter((hat) => hat.soldAt);
+    const firstSoldDate = soldWithDates.length
+      ? soldWithDates.reduce((earliest, hat) => (hat.soldAt! < earliest ? hat.soldAt! : earliest), soldWithDates[0].soldAt!)
+      : null;
+
+    const sudahDiRestock = firstSoldDate
+      ? available.filter((hat) => hat.boughtAt > firstSoldDate).reduce((sum, hat) => sum + hat.costPrice, 0)
+      : 0;
+
+    const budgetRestock = costSold + alokasiBeliBaru;
+    const sisaBudgetRestock = budgetRestock - sudahDiRestock;
+
+    // Cash bisnis = revenue - restock (sudah di-restock) - owner draw - pengeluaran lain - biaya operasional
+    const cashBisnis = revenue - sudahDiRestock - totalOwnerDraw - totalOperational - biayaOperasional;
+
+    return {
+      available: available.length, sold: sold.length, revenue, profit, profitBersih, biayaOperasional,
+      stockValue, costSold, alokasiBeliBaru, alokasiOwner, alokasiTabungan,
+      budgetRestock, sudahDiRestock, sisaBudgetRestock,
+      totalOwnerDraw, totalOperational, cashBisnis,
+    };
+  }, [hats, expenses, financeConfig, configHistory]);
 
   const availableHats = hats
     .filter((hat) => hat.status === "AVAILABLE")
@@ -849,6 +947,50 @@ export default function ThriftHatInventoryApp() {
     [activeReportRange, soldHats]
   );
   const bulkItems = useMemo(() => parseBulkItems(bulkText), [bulkText]);
+
+  const modalMasukByDate = useMemo(() => {
+    // Determine filter range
+    let startDate = "";
+    let endDate = "9999-12-31";
+
+    if (modalMasukPeriod === "daily") {
+      startDate = modalMasukDate;
+      endDate = modalMasukDate;
+    } else if (modalMasukPeriod === "weekly") {
+      const ref = parseDateInputValue(modalMasukDate);
+      const day = ref.getDay() || 7;
+      ref.setDate(ref.getDate() - day + 1);
+      startDate = toDateInputValue(ref);
+      const end = new Date(ref);
+      end.setDate(ref.getDate() + 6);
+      endDate = toDateInputValue(end);
+    } else if (modalMasukPeriod === "monthly") {
+      const [y, m] = modalMasukMonth.split("-").map(Number);
+      startDate = `${y}-${String(m).padStart(2, "0")}-01`;
+      const lastDay = new Date(y, m, 0);
+      endDate = toDateInputValue(lastDay);
+    }
+
+    const filtered = modalMasukPeriod === "all" ? hats : hats.filter((hat) => hat.boughtAt >= startDate && hat.boughtAt <= endDate);
+
+    const grouped = new Map<string, { total: number; count: number }>();
+    filtered.forEach((hat) => {
+      const date = hat.boughtAt;
+      const current = grouped.get(date) || { total: 0, count: 0 };
+      grouped.set(date, { total: current.total + hat.costPrice, count: current.count + 1 });
+    });
+    return Array.from(grouped.entries())
+      .sort(([a], [b]) => b.localeCompare(a))
+      .map(([date, value]) => ({
+        date,
+        total: value.total,
+        count: value.count,
+      }));
+  }, [hats, modalMasukPeriod, modalMasukDate, modalMasukMonth]);
+
+  const totalModalMasukFiltered = useMemo(() => modalMasukByDate.reduce((sum, e) => sum + e.total, 0), [modalMasukByDate]);
+  const totalItemMasukFiltered = useMemo(() => modalMasukByDate.reduce((sum, e) => sum + e.count, 0), [modalMasukByDate]);
+
   const salesChart = useMemo(() => {
     const salesByDate = new Map<string, { revenue: number; count: number }>();
 
@@ -1081,6 +1223,77 @@ export default function ThriftHatInventoryApp() {
 
   function updateUserForm(key: keyof UserFormState, value: string) {
     setUserForm((current) => ({ ...current, [key]: value }));
+  }
+
+  function updateExpenseForm(key: keyof ExpenseFormState, value: string) {
+    setExpenseForm((current) => ({ ...current, [key]: value }));
+  }
+
+  function addExpense() {
+    if (!expenseForm.label.trim() || !expenseForm.amount) return;
+    const newExpense: Expense = {
+      id: makeLocalId(),
+      label: expenseForm.label.trim(),
+      amount: Number(expenseForm.amount),
+      type: expenseForm.type,
+      date: toDateInputValue(new Date()),
+    };
+    setExpenses((current) => [newExpense, ...current]);
+    setExpenseForm(emptyExpenseForm);
+    setDbMessage(`Pengeluaran "${newExpense.label}" tercatat.`);
+  }
+
+  function deleteExpense(id: string) {
+    setExpenses((current) => current.filter((e) => e.id !== id));
+  }
+
+  function saveConfig() {
+    const putar = Number(configForm.putar) || 0;
+    const owner = Number(configForm.owner) || 0;
+    const tabungan = Number(configForm.tabungan) || 0;
+    const total = putar + owner + tabungan;
+
+    if (total !== 100) {
+      setDbMessage(`Total persentase alokasi harus 100%. Sekarang: ${total}%`);
+      return;
+    }
+
+    const newConfig: FinanceConfig = {
+      biayaOperasionalPerItem: Number(configForm.biayaOps) || 0,
+      persenPutarModal: putar,
+      persenOwner: owner,
+      persenTabungan: tabungan,
+    };
+
+    const newEntry: FinanceConfigEntry = {
+      ...newConfig,
+      berlakuMulai: toDateInputValue(new Date()),
+    };
+
+    const updatedHistory = [...configHistory, newEntry];
+    setConfigHistory(updatedHistory);
+    saveFinanceConfigHistory(updatedHistory);
+    setFinanceConfig(newConfig);
+    setDbMessage(`Pengaturan keuangan disimpan. Berlaku mulai hari ini (${formatDisplayDate(newEntry.berlakuMulai)}). Transaksi sebelumnya tidak terpengaruh.`);
+  }
+
+  function resetConfig() {
+    setFinanceConfig(DEFAULT_FINANCE_CONFIG);
+    setConfigForm({
+      biayaOps: String(DEFAULT_FINANCE_CONFIG.biayaOperasionalPerItem),
+      putar: String(DEFAULT_FINANCE_CONFIG.persenPutarModal),
+      owner: String(DEFAULT_FINANCE_CONFIG.persenOwner),
+      tabungan: String(DEFAULT_FINANCE_CONFIG.persenTabungan),
+    });
+    // Reset = tambah entry baru dengan default, bukan hapus history
+    const newEntry: FinanceConfigEntry = {
+      ...DEFAULT_FINANCE_CONFIG,
+      berlakuMulai: toDateInputValue(new Date()),
+    };
+    const updatedHistory = [...configHistory, newEntry];
+    setConfigHistory(updatedHistory);
+    saveFinanceConfigHistory(updatedHistory);
+    setDbMessage("Pengaturan keuangan direset ke default. Berlaku mulai hari ini.");
   }
 
   function setTargetImage(value: string) {
@@ -2164,8 +2377,10 @@ export default function ThriftHatInventoryApp() {
     { key: "dashboard", label: "Dashboard", icon: LayoutDashboard },
     { key: "add", label: "Topi Masuk", icon: PackagePlus },
     { key: "stock", label: "Stok", icon: Boxes },
+    { key: "finance", label: "Keuangan", icon: Landmark },
     ...(canManageUserMenu ? [{ key: "users" as ViewKey, label: "User", icon: Users }] : []),
     { key: "reports", label: "Laporan", icon: BarChart3 },
+    { key: "config", label: "Pengaturan", icon: Settings },
   ];
 
   function changeView(view: ViewKey) {
@@ -2212,7 +2427,7 @@ export default function ThriftHatInventoryApp() {
             </div>
           </div>
 
-          <nav className="grid grid-cols-5 gap-1">
+          <nav className="grid auto-cols-fr grid-flow-col gap-1">
             {navItems.map((item) => {
               const Icon = item.icon;
 
@@ -2687,6 +2902,576 @@ export default function ThriftHatInventoryApp() {
                 </div>
               </Panel>
             </section>
+          )}
+
+          {(activeView === "dashboard" || activeView === "finance") && (
+            <Panel className="p-4 sm:p-5">
+              <SectionHeader
+                icon={Landmark}
+                title="Keuangan"
+                description="Ringkasan arus uang bisnis — penjualan, modal, profit, dan status bisnis."
+              />
+
+              {/* Finance Cards */}
+              <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
+                <div className="relative rounded-xl border-2 border-slate-200 bg-gradient-to-br from-slate-50 to-white p-4">
+                  <div className="flex items-center gap-2">
+                    <div className="grid h-9 w-9 place-items-center rounded-lg bg-slate-100 text-slate-700">
+                      <Boxes size={18} />
+                    </div>
+                    <p className="text-xs font-bold uppercase text-slate-400">Modal Aset</p>
+                    <FormulaTooltip formula="Σ Harga Modal semua item yang masih AVAILABLE (stok saat ini)" />
+                  </div>
+                  <p className="mt-3 text-xl font-black text-slate-950">{formatRupiah(stats.stockValue)}</p>
+                  <p className="mt-1 text-xs font-medium text-slate-500">{stats.available} item di stok</p>
+                </div>
+
+                <div className="relative rounded-xl border border-slate-200 bg-white p-4">
+                  <div className="flex items-center gap-2">
+                    <div className="grid h-9 w-9 place-items-center rounded-lg bg-emerald-50 text-emerald-600">
+                      <ArrowUpCircle size={18} />
+                    </div>
+                    <p className="text-xs font-bold uppercase text-slate-400">Total Penjualan</p>
+                    <FormulaTooltip formula="Σ Harga Jual semua item SOLD" />
+                  </div>
+                  <p className="mt-3 text-xl font-black text-slate-950">{formatRupiah(stats.revenue)}</p>
+                  <p className="mt-1 text-xs font-medium text-emerald-600">Uang masuk dari {stats.sold} item sold</p>
+                </div>
+
+                <div className="relative rounded-xl border border-slate-200 bg-white p-4">
+                  <div className="flex items-center gap-2">
+                    <div className="grid h-9 w-9 place-items-center rounded-lg bg-red-50 text-red-600">
+                      <ArrowDownCircle size={18} />
+                    </div>
+                    <p className="text-xs font-bold uppercase text-slate-400">Modal Barang Terjual</p>
+                    <FormulaTooltip formula="Σ Harga Modal item yang sudah SOLD" />
+                  </div>
+                  <p className="mt-3 text-xl font-black text-slate-950">{formatRupiah(stats.costSold)}</p>
+                  <p className="mt-1 text-xs font-medium text-red-500">Modal produk yang sudah laku</p>
+                </div>
+
+                <div className="relative rounded-xl border border-slate-200 bg-white p-4">
+                  <div className="flex items-center gap-2">
+                    <div className="grid h-9 w-9 place-items-center rounded-lg bg-cyan-50 text-cyan-600">
+                      <TrendingUp size={18} />
+                    </div>
+                    <p className="text-xs font-bold uppercase text-slate-400">Profit Kotor</p>
+                    <FormulaTooltip formula="Total Penjualan − Modal Terjual" />
+                  </div>
+                  <p className="mt-3 text-xl font-black text-slate-950">{formatRupiah(stats.profit)}</p>
+                  <p className="mt-1 text-xs font-medium text-cyan-600">Penjualan − Modal</p>
+                </div>
+
+                <div className={`relative rounded-xl border-2 p-4 ${stats.profitBersih >= 0 ? "border-emerald-200 bg-emerald-50/50" : "border-red-200 bg-red-50/50"}`}>
+                  <div className="flex items-center gap-2">
+                    <div className={`grid h-9 w-9 place-items-center rounded-lg ${stats.profitBersih >= 0 ? "bg-emerald-100 text-emerald-700" : "bg-red-100 text-red-700"}`}>
+                      <Landmark size={18} />
+                    </div>
+                    <p className="text-xs font-bold uppercase text-slate-400">Profit Bersih</p>
+                    <FormulaTooltip formula={`Profit Kotor − (${formatRupiah(financeConfig.biayaOperasionalPerItem)} × ${stats.sold} item)`} />
+                  </div>
+                  <p className={`mt-3 text-xl font-black ${stats.profitBersih >= 0 ? "text-emerald-700" : "text-red-700"}`}>
+                    {formatRupiah(stats.profitBersih)}
+                  </p>
+                  <p className={`mt-1 text-xs font-medium ${stats.profitBersih >= 0 ? "text-emerald-600" : "text-red-600"}`}>
+                    Setelah ongkos {formatRupiah(financeConfig.biayaOperasionalPerItem)}/item
+                  </p>
+                </div>
+              </div>
+
+              {/* Status Bisnis */}
+              <div className={`mt-4 flex items-center justify-between gap-4 rounded-xl border-2 p-4 ${stats.profitBersih >= 0 ? "border-emerald-200 bg-emerald-50/30" : "border-red-200 bg-red-50/30"}`}>
+                <div>
+                  <p className="text-xs font-bold uppercase text-slate-400">Status Bisnis</p>
+                  <p className={`mt-1 text-2xl font-black ${stats.profitBersih >= 0 ? "text-emerald-700" : "text-red-700"}`}>
+                    {stats.profitBersih >= 0 ? "UNTUNG" : "RUGI"}
+                  </p>
+                </div>
+                <div className="text-right">
+                  <p className="text-xs font-medium text-slate-400">Margin bersih</p>
+                  <p className={`text-lg font-black ${stats.profitBersih >= 0 ? "text-emerald-700" : "text-red-700"}`}>
+                    {stats.revenue ? Math.round((stats.profitBersih / stats.revenue) * 100) : 0}%
+                  </p>
+                </div>
+              </div>
+
+              {/* Cash Bisnis */}
+              <div className="mt-5">
+                <h3 className="mb-3 text-sm font-black uppercase tracking-wide text-slate-500">Cash Bisnis</h3>
+                <div className={`rounded-xl border-2 p-5 ${stats.cashBisnis >= 0 ? "border-emerald-200 bg-gradient-to-br from-emerald-50 to-white" : "border-red-200 bg-gradient-to-br from-red-50 to-white"}`}>
+                  <div className="flex items-center justify-between gap-4">
+                    <div>
+                      <p className="text-xs font-bold uppercase text-slate-400">Saldo Cash Bisnis</p>
+                      <p className={`mt-2 text-3xl font-black ${stats.cashBisnis >= 0 ? "text-emerald-700" : "text-red-700"}`}>
+                        {formatRupiah(stats.cashBisnis)}
+                      </p>
+                      <p className="mt-1 text-xs font-medium text-slate-500">Uang yang tersedia di bisnis saat ini</p>
+                    </div>
+                    <div className={`grid h-14 w-14 shrink-0 place-items-center rounded-xl ${stats.cashBisnis >= 0 ? "bg-emerald-100 text-emerald-700" : "bg-red-100 text-red-700"}`}>
+                      <Wallet size={26} />
+                    </div>
+                  </div>
+
+                  <div className="mt-4 grid gap-2 rounded-lg border border-slate-200 bg-white p-3">
+                    <p className="text-xs font-bold uppercase text-slate-400">Otomatis dari data</p>
+                    <div className="flex items-center justify-between gap-3 text-sm">
+                      <span className="font-medium text-emerald-600">+ Penjualan</span>
+                      <span className="font-bold text-emerald-700">{formatRupiah(stats.revenue)}</span>
+                    </div>
+                    <div className="flex items-center justify-between gap-3 text-sm">
+                      <span className="font-medium text-red-500">− Restock (barang baru masuk)</span>
+                      <span className="font-bold text-red-600">-{formatRupiah(stats.sudahDiRestock)}</span>
+                    </div>
+                    <div className="flex items-center justify-between gap-3 text-sm">
+                      <span className="font-medium text-red-500">− Biaya operasional ({formatRupiah(financeConfig.biayaOperasionalPerItem)} × {stats.sold})</span>
+                      <span className="font-bold text-red-600">-{formatRupiah(stats.biayaOperasional)}</span>
+                    </div>
+                    <div className="border-t border-slate-100 pt-2">
+                      <p className="text-xs font-bold uppercase text-slate-400">Manual (dicatat sendiri)</p>
+                    </div>
+                    <div className="flex items-center justify-between gap-3 text-sm">
+                      <span className="font-medium text-red-500">− Owner draw</span>
+                      <span className="font-bold text-red-600">-{formatRupiah(stats.totalOwnerDraw)}</span>
+                    </div>
+                    <div className="flex items-center justify-between gap-3 text-sm">
+                      <span className="font-medium text-red-500">− Pengeluaran lain</span>
+                      <span className="font-bold text-red-600">-{formatRupiah(stats.totalOperational)}</span>
+                    </div>
+                    <div className="border-t border-slate-100 pt-2">
+                      <div className="flex items-center justify-between gap-3 text-sm">
+                        <span className="font-black text-slate-700">= Saldo cash bisnis</span>
+                        <span className={`font-black ${stats.cashBisnis >= 0 ? "text-emerald-700" : "text-red-700"}`}>{formatRupiah(stats.cashBisnis)}</span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Expense / Pengeluaran Manual */}
+              <div className="mt-5">
+                <h3 className="mb-3 text-sm font-black uppercase tracking-wide text-slate-500">Catat Pengeluaran</h3>
+                <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+                  <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_120px_140px_auto]">
+                    <input
+                      value={expenseForm.label}
+                      onChange={(event) => updateExpenseForm("label", event.target.value)}
+                      placeholder="Keterangan (misal: tarik profit, beli plastik)"
+                      className="h-11 rounded-lg border border-slate-200 bg-white px-3 text-sm font-medium text-slate-950 outline-none transition placeholder:text-slate-400 focus:border-cyan-500 focus:ring-4 focus:ring-cyan-100"
+                    />
+                    <input
+                      value={expenseForm.amount}
+                      onChange={(event) => updateExpenseForm("amount", event.target.value.replace(/[^0-9]/g, ""))}
+                      placeholder="Jumlah"
+                      inputMode="numeric"
+                      className="h-11 rounded-lg border border-slate-200 bg-white px-3 text-sm font-medium text-slate-950 outline-none transition placeholder:text-slate-400 focus:border-cyan-500 focus:ring-4 focus:ring-cyan-100"
+                    />
+                    <select
+                      value={expenseForm.type}
+                      onChange={(event) => updateExpenseForm("type", event.target.value)}
+                      className="h-11 rounded-lg border border-slate-200 bg-white px-3 text-sm font-medium text-slate-950 outline-none transition focus:border-cyan-500 focus:ring-4 focus:ring-cyan-100"
+                    >
+                      <option value="owner_draw">Owner Draw</option>
+                      <option value="operational">Pengeluaran Lain</option>
+                    </select>
+                    <Button onClick={addExpense} disabled={!expenseForm.label.trim() || !expenseForm.amount} className="h-11">
+                      + Catat
+                    </Button>
+                  </div>
+                </div>
+
+                {expenses.length > 0 && (
+                  <div className="mt-3 grid gap-2">
+                    {expenses.map((expense) => (
+                      <div key={expense.id} className="flex items-center justify-between gap-3 rounded-xl border border-slate-200 bg-white p-3">
+                        <div className="flex items-center gap-3">
+                          <div className={`grid h-9 w-9 shrink-0 place-items-center rounded-lg ${expense.type === "owner_draw" ? "bg-emerald-50 text-emerald-600" : "bg-amber-50 text-amber-600"}`}>
+                            {expense.type === "owner_draw" ? <Wallet size={16} /> : <ArrowDownCircle size={16} />}
+                          </div>
+                          <div>
+                            <p className="text-sm font-bold text-slate-950">{expense.label}</p>
+                            <p className="text-xs font-medium text-slate-400">
+                              {expense.type === "owner_draw" ? "Owner Draw" : "Pengeluaran Lain"} • {formatDisplayDate(expense.date)}
+                            </p>
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <p className="text-sm font-black text-red-600">-{formatRupiah(expense.amount)}</p>
+                          <button
+                            type="button"
+                            onClick={() => deleteExpense(expense.id)}
+                            className="grid h-8 w-8 place-items-center rounded-lg text-slate-400 transition hover:bg-red-50 hover:text-red-600"
+                            title="Hapus"
+                            aria-label={`Hapus ${expense.label}`}
+                          >
+                            <Trash2 size={14} />
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              {/* Budget Restock */}
+              <div className="mt-5">
+                <div className="mb-3 flex items-center gap-2">
+                  <h3 className="text-sm font-black uppercase tracking-wide text-slate-500">Budget Restock</h3>
+                  <FormulaTooltip formula={`Budget = Modal Terjual + (Profit Bersih × ${financeConfig.persenPutarModal}%). Sisa = Budget − Restock setelah jualan pertama.`} />
+                </div>
+                <div className={`rounded-xl border-2 p-5 ${stats.sisaBudgetRestock >= 0 ? "border-cyan-200 bg-gradient-to-br from-cyan-50 to-white" : "border-red-200 bg-gradient-to-br from-red-50 to-white"}`}>
+                  <div className="flex items-center justify-between gap-4">
+                    <div>
+                      <p className="text-xs font-bold uppercase text-slate-400">Sisa Budget Restock</p>
+                      <p className={`mt-2 text-3xl font-black ${stats.sisaBudgetRestock >= 0 ? "text-cyan-700" : "text-red-700"}`}>
+                        {formatRupiah(stats.sisaBudgetRestock)}
+                      </p>
+                      <p className={`mt-1 text-xs font-medium ${stats.sisaBudgetRestock >= 0 ? "text-cyan-600" : "text-red-600"}`}>
+                        {stats.sisaBudgetRestock >= 0 ? "Masih bisa belanja barang baru" : "Kelebihan pakai uang sendiri!"}
+                      </p>
+                    </div>
+                    <div className={`grid h-14 w-14 shrink-0 place-items-center rounded-xl ${stats.sisaBudgetRestock >= 0 ? "bg-cyan-100 text-cyan-700" : "bg-red-100 text-red-700"}`}>
+                      <Repeat size={26} />
+                    </div>
+                  </div>
+
+                  <div className="mt-4 grid gap-2 rounded-lg border border-slate-200 bg-white p-3">
+                    <div className="flex items-center justify-between gap-3 text-sm">
+                      <span className="font-medium text-slate-500">Modal barang terjual</span>
+                      <span className="font-bold text-slate-950">{formatRupiah(stats.costSold)}</span>
+                    </div>
+                    <div className="flex items-center justify-between gap-3 text-sm">
+                      <span className="font-medium text-slate-500">+ {financeConfig.persenPutarModal}% profit (putar modal)</span>
+                      <span className="font-bold text-slate-950">{formatRupiah(stats.alokasiBeliBaru)}</span>
+                    </div>
+                    <div className="border-t border-slate-100 pt-2">
+                      <div className="flex items-center justify-between gap-3 text-sm">
+                        <span className="font-bold text-slate-700">= Total budget restock</span>
+                        <span className="font-black text-slate-950">{formatRupiah(stats.budgetRestock)}</span>
+                      </div>
+                    </div>
+                    <div className="flex items-center justify-between gap-3 text-sm">
+                      <span className="font-medium text-red-500">− Sudah di-restock (setelah jualan pertama)</span>
+                      <span className="font-bold text-red-600">-{formatRupiah(stats.sudahDiRestock)}</span>
+                    </div>
+                    <div className="border-t border-slate-100 pt-2">
+                      <div className="flex items-center justify-between gap-3 text-sm">
+                        <span className="font-black text-slate-700">= Sisa budget</span>
+                        <span className={`font-black ${stats.sisaBudgetRestock >= 0 ? "text-cyan-700" : "text-red-700"}`}>{formatRupiah(stats.sisaBudgetRestock)}</span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Alokasi Profit */}
+              <div className="mt-5">
+                <h3 className="mb-3 text-sm font-black uppercase tracking-wide text-slate-500">Alokasi Profit</h3>
+                {stats.profitBersih < 0 && (
+                  <div className="mb-3 rounded-xl border border-red-200 bg-red-50 p-3 text-xs font-semibold text-red-700">
+                    Bisnis masih rugi {formatRupiah(Math.abs(stats.profitBersih))}. Angka minus di bawah = defisit yang perlu ditutup dulu sebelum ada profit nyata.
+                  </div>
+                )}
+                <div className="grid gap-3 sm:grid-cols-3">
+                  <div className="rounded-xl border-2 border-cyan-200 bg-gradient-to-br from-cyan-50 to-white p-4">
+                    <div className="flex items-center gap-2">
+                      <div className="grid h-9 w-9 place-items-center rounded-lg bg-cyan-100 text-cyan-700">
+                        <Repeat size={18} />
+                      </div>
+                      <span className="text-xs font-black uppercase text-cyan-600">{financeConfig.persenPutarModal}% Putar Modal</span>
+                      <FormulaTooltip formula={`Profit Bersih × ${financeConfig.persenPutarModal}%`} />
+                    </div>
+                    <p className="mt-3 text-xl font-black text-slate-950">{formatRupiah(stats.alokasiBeliBaru)}</p>
+                    <p className="mt-1 text-xs font-medium text-slate-400">Untuk beli barang baru</p>
+                  </div>
+
+                  <div className="rounded-xl border-2 border-emerald-200 bg-gradient-to-br from-emerald-50 to-white p-4">
+                    <div className="flex items-center gap-2">
+                      <div className="grid h-9 w-9 place-items-center rounded-lg bg-emerald-100 text-emerald-700">
+                        <Wallet size={18} />
+                      </div>
+                      <span className="text-xs font-black uppercase text-emerald-600">{financeConfig.persenOwner}% Owner</span>
+                      <FormulaTooltip formula={`Profit Bersih × ${financeConfig.persenOwner}%`} />
+                    </div>
+                    <p className="mt-3 text-xl font-black text-slate-950">{formatRupiah(stats.alokasiOwner)}</p>
+                    <p className="mt-1 text-xs font-medium text-slate-400">Profit untuk owner</p>
+                  </div>
+
+                  <div className="rounded-xl border-2 border-amber-200 bg-gradient-to-br from-amber-50 to-white p-4">
+                    <div className="flex items-center gap-2">
+                      <div className="grid h-9 w-9 place-items-center rounded-lg bg-amber-100 text-amber-700">
+                        <PiggyBank size={18} />
+                      </div>
+                      <span className="text-xs font-black uppercase text-amber-600">{financeConfig.persenTabungan}% Tabungan</span>
+                      <FormulaTooltip formula={`Profit Bersih × ${financeConfig.persenTabungan}%`} />
+                    </div>
+                    <p className="mt-3 text-xl font-black text-slate-950">{formatRupiah(stats.alokasiTabungan)}</p>
+                    <p className="mt-1 text-xs font-medium text-slate-400">Tabungan bisnis darurat</p>
+                  </div>
+                </div>
+
+                <div className="mt-3 rounded-xl border border-slate-200 bg-slate-50 p-4">
+                  <div className="flex items-center justify-between gap-3">
+                    <span className="text-sm font-bold text-slate-600">Total Profit Bersih</span>
+                    <span className="text-lg font-black text-slate-950">{formatRupiah(stats.profitBersih)}</span>
+                  </div>
+                  <div className="mt-2 h-3 overflow-hidden rounded-full bg-slate-200">
+                    <div className="flex h-full">
+                      <div className="h-full bg-cyan-500" style={{ width: `${financeConfig.persenPutarModal}%` }} />
+                      <div className="h-full bg-emerald-500" style={{ width: `${financeConfig.persenOwner}%` }} />
+                      <div className="h-full bg-amber-500" style={{ width: `${financeConfig.persenTabungan}%` }} />
+                    </div>
+                  </div>
+                  <div className="mt-2 flex flex-wrap gap-4 text-xs font-semibold text-slate-500">
+                    <span className="flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-full bg-cyan-500" />Putar Modal {financeConfig.persenPutarModal}%</span>
+                    <span className="flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-full bg-emerald-500" />Owner {financeConfig.persenOwner}%</span>
+                    <span className="flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-full bg-amber-500" />Tabungan {financeConfig.persenTabungan}%</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Modal Masuk per Tanggal */}
+              <div className="mt-5">
+                <h3 className="mb-3 text-sm font-black uppercase tracking-wide text-slate-500">Modal Masuk per Tanggal</h3>
+
+                {/* Filter */}
+                <div className="mb-3 grid gap-3 rounded-xl border border-slate-200 bg-slate-50 p-3">
+                  <div className="grid grid-cols-4 gap-1 rounded-lg bg-white p-1">
+                    {[
+                      { key: "all", label: "Semua" },
+                      { key: "daily", label: "Harian" },
+                      { key: "weekly", label: "Mingguan" },
+                      { key: "monthly", label: "Bulanan" },
+                    ].map((item) => (
+                      <button
+                        key={item.key}
+                        type="button"
+                        onClick={() => setModalMasukPeriod(item.key as ReportPeriod)}
+                        className={`h-9 rounded-md text-xs font-black transition ${
+                          modalMasukPeriod === item.key ? "bg-slate-950 text-white shadow-sm" : "text-slate-500 hover:bg-slate-100"
+                        }`}
+                      >
+                        {item.label}
+                      </button>
+                    ))}
+                  </div>
+
+                  {modalMasukPeriod !== "all" && (
+                    <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
+                      {(modalMasukPeriod === "daily" || modalMasukPeriod === "weekly") && (
+                        <label className="grid gap-1.5 text-xs font-semibold text-slate-600">
+                          {modalMasukPeriod === "weekly" ? "Tanggal acuan minggu" : "Pilih tanggal"}
+                          <input
+                            type="date"
+                            value={modalMasukDate}
+                            onChange={(event) => setModalMasukDate(event.target.value)}
+                            className="h-10 rounded-lg border border-slate-200 bg-white px-3 text-sm font-medium outline-none transition focus:border-cyan-500 focus:ring-4 focus:ring-cyan-100"
+                          />
+                        </label>
+                      )}
+                      {modalMasukPeriod === "monthly" && (
+                        <label className="grid gap-1.5 text-xs font-semibold text-slate-600">
+                          Pilih bulan
+                          <input
+                            type="month"
+                            value={modalMasukMonth}
+                            onChange={(event) => setModalMasukMonth(event.target.value)}
+                            className="h-10 rounded-lg border border-slate-200 bg-white px-3 text-sm font-medium outline-none transition focus:border-cyan-500 focus:ring-4 focus:ring-cyan-100"
+                          />
+                        </label>
+                      )}
+                      <div className="flex items-end">
+                        <div className="rounded-lg bg-white px-3 py-2">
+                          <p className="text-xs font-bold text-slate-400">Total periode ini</p>
+                          <p className="text-sm font-black text-slate-950">{formatRupiah(totalModalMasukFiltered)} ({totalItemMasukFiltered} item)</p>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                <div className="grid gap-2">
+                  {modalMasukByDate.map((entry) => (
+                    <div key={entry.date} className="flex items-center justify-between gap-3 rounded-xl border border-slate-200 bg-white p-3">
+                      <div className="flex items-center gap-3">
+                        <div className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-slate-100 text-slate-600">
+                          <PackagePlus size={16} />
+                        </div>
+                        <div>
+                          <p className="text-sm font-bold text-slate-950">{formatDisplayDate(entry.date)}</p>
+                          <p className="text-xs font-medium text-slate-400">{entry.count} item masuk</p>
+                        </div>
+                      </div>
+                      <p className="text-sm font-black text-red-600">-{formatRupiah(entry.total)}</p>
+                    </div>
+                  ))}
+                  {!modalMasukByDate.length && (
+                    <div className="rounded-xl border border-dashed border-slate-300 p-6 text-center text-sm font-medium text-slate-500">
+                      Belum ada data barang masuk pada periode ini.
+                    </div>
+                  )}
+                </div>
+              </div>
+            </Panel>
+          )}
+
+          {activeView === "config" && (
+            <Panel className="p-4 sm:p-5">
+              <SectionHeader
+                icon={Settings}
+                title="Pengaturan Keuangan"
+                description="Konfigurasi biaya operasional dan persentase alokasi profit."
+              />
+
+              <div className="grid gap-6 xl:grid-cols-2">
+                {/* Biaya Operasional */}
+                <div className="rounded-xl border border-slate-200 bg-slate-50 p-5">
+                  <h4 className="text-sm font-black text-slate-700">Biaya Operasional per Item</h4>
+                  <p className="mt-1 text-xs leading-5 text-slate-500">
+                    Biaya packing, ongkir, atau operasional lain yang dikenakan per item terjual. Akan otomatis mengurangi profit kotor.
+                  </p>
+                  <label className="mt-4 grid gap-2 text-sm font-semibold text-slate-700">
+                    Nominal (Rp)
+                    <input
+                      value={configForm.biayaOps}
+                      onChange={(event) => setConfigForm((c) => ({ ...c, biayaOps: event.target.value.replace(/[^0-9]/g, "") }))}
+                      placeholder="4000"
+                      inputMode="numeric"
+                      className="h-11 rounded-lg border border-slate-200 bg-white px-3 text-sm font-medium text-slate-950 outline-none transition placeholder:text-slate-400 focus:border-cyan-500 focus:ring-4 focus:ring-cyan-100"
+                    />
+                  </label>
+                  <p className="mt-2 text-xs text-slate-400">
+                    Saat ini: <span className="font-bold text-slate-700">{formatRupiah(financeConfig.biayaOperasionalPerItem)}</span> per item
+                  </p>
+                </div>
+
+                {/* Persentase Alokasi */}
+                <div className="rounded-xl border border-slate-200 bg-slate-50 p-5">
+                  <h4 className="text-sm font-black text-slate-700">Persentase Alokasi Profit</h4>
+                  <p className="mt-1 text-xs leading-5 text-slate-500">
+                    Pembagian profit bersih ke 3 pos. Total harus 100%.
+                  </p>
+                  <div className="mt-4 grid gap-3">
+                    <label className="grid gap-2 text-sm font-semibold text-slate-700">
+                      <span className="flex items-center gap-2">
+                        <span className="h-3 w-3 rounded-full bg-cyan-500" />
+                        Putar Modal (%)
+                      </span>
+                      <input
+                        value={configForm.putar}
+                        onChange={(event) => setConfigForm((c) => ({ ...c, putar: event.target.value.replace(/[^0-9]/g, "") }))}
+                        placeholder="70"
+                        inputMode="numeric"
+                        className="h-11 rounded-lg border border-slate-200 bg-white px-3 text-sm font-medium text-slate-950 outline-none transition placeholder:text-slate-400 focus:border-cyan-500 focus:ring-4 focus:ring-cyan-100"
+                      />
+                    </label>
+                    <label className="grid gap-2 text-sm font-semibold text-slate-700">
+                      <span className="flex items-center gap-2">
+                        <span className="h-3 w-3 rounded-full bg-emerald-500" />
+                        Owner (%)
+                      </span>
+                      <input
+                        value={configForm.owner}
+                        onChange={(event) => setConfigForm((c) => ({ ...c, owner: event.target.value.replace(/[^0-9]/g, "") }))}
+                        placeholder="20"
+                        inputMode="numeric"
+                        className="h-11 rounded-lg border border-slate-200 bg-white px-3 text-sm font-medium text-slate-950 outline-none transition placeholder:text-slate-400 focus:border-cyan-500 focus:ring-4 focus:ring-cyan-100"
+                      />
+                    </label>
+                    <label className="grid gap-2 text-sm font-semibold text-slate-700">
+                      <span className="flex items-center gap-2">
+                        <span className="h-3 w-3 rounded-full bg-amber-500" />
+                        Tabungan Bisnis (%)
+                      </span>
+                      <input
+                        value={configForm.tabungan}
+                        onChange={(event) => setConfigForm((c) => ({ ...c, tabungan: event.target.value.replace(/[^0-9]/g, "") }))}
+                        placeholder="10"
+                        inputMode="numeric"
+                        className="h-11 rounded-lg border border-slate-200 bg-white px-3 text-sm font-medium text-slate-950 outline-none transition placeholder:text-slate-400 focus:border-cyan-500 focus:ring-4 focus:ring-cyan-100"
+                      />
+                    </label>
+                  </div>
+
+                  {/* Total indicator */}
+                  <div className={`mt-3 rounded-lg p-3 ${
+                    (Number(configForm.putar) || 0) + (Number(configForm.owner) || 0) + (Number(configForm.tabungan) || 0) === 100
+                      ? "bg-emerald-50 text-emerald-700"
+                      : "bg-red-50 text-red-700"
+                  }`}>
+                    <p className="text-xs font-black">
+                      Total: {(Number(configForm.putar) || 0) + (Number(configForm.owner) || 0) + (Number(configForm.tabungan) || 0)}%
+                      {(Number(configForm.putar) || 0) + (Number(configForm.owner) || 0) + (Number(configForm.tabungan) || 0) === 100
+                        ? " ✓"
+                        : " — harus 100%"}
+                    </p>
+                  </div>
+
+                  <p className="mt-2 text-xs text-slate-400">
+                    Saat ini: <span className="font-bold text-slate-700">{financeConfig.persenPutarModal}/{financeConfig.persenOwner}/{financeConfig.persenTabungan}</span>
+                  </p>
+                </div>
+              </div>
+
+              {/* Preview */}
+              <div className="mt-5 rounded-xl border border-slate-200 bg-white p-4">
+                <h4 className="text-sm font-black text-slate-700">Preview Pengaturan Baru</h4>
+                <div className="mt-3 grid gap-2 text-sm">
+                  <div className="flex items-center justify-between gap-3 rounded-lg bg-slate-50 px-3 py-2">
+                    <span className="font-medium text-slate-500">Biaya operasional</span>
+                    <span className="font-bold text-slate-950">{formatRupiah(Number(configForm.biayaOps) || 0)} / item</span>
+                  </div>
+                  <div className="flex items-center justify-between gap-3 rounded-lg bg-slate-50 px-3 py-2">
+                    <span className="font-medium text-slate-500">Alokasi putar modal</span>
+                    <span className="font-bold text-cyan-700">{configForm.putar || 0}%</span>
+                  </div>
+                  <div className="flex items-center justify-between gap-3 rounded-lg bg-slate-50 px-3 py-2">
+                    <span className="font-medium text-slate-500">Alokasi owner</span>
+                    <span className="font-bold text-emerald-700">{configForm.owner || 0}%</span>
+                  </div>
+                  <div className="flex items-center justify-between gap-3 rounded-lg bg-slate-50 px-3 py-2">
+                    <span className="font-medium text-slate-500">Alokasi tabungan</span>
+                    <span className="font-bold text-amber-700">{configForm.tabungan || 0}%</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Actions */}
+              <div className="mt-5 grid gap-3 sm:grid-cols-2">
+                <Button variant="secondary" onClick={resetConfig}>
+                  <RefreshCw size={16} />
+                  Reset ke Default
+                </Button>
+                <Button
+                  onClick={saveConfig}
+                  disabled={(Number(configForm.putar) || 0) + (Number(configForm.owner) || 0) + (Number(configForm.tabungan) || 0) !== 100}
+                >
+                  <Settings size={16} />
+                  Simpan Pengaturan
+                </Button>
+              </div>
+
+              {/* Riwayat Perubahan Config */}
+              {configHistory.length > 0 && (
+                <div className="mt-5">
+                  <h4 className="mb-3 text-sm font-black text-slate-700">Riwayat Perubahan</h4>
+                  <div className="grid gap-2">
+                    {[...configHistory].sort((a, b) => b.berlakuMulai.localeCompare(a.berlakuMulai)).map((entry, index) => (
+                      <div key={`${entry.berlakuMulai}-${index}`} className="flex items-center justify-between gap-3 rounded-xl border border-slate-200 bg-white p-3">
+                        <div>
+                          <p className="text-sm font-bold text-slate-950">Berlaku mulai {formatDisplayDate(entry.berlakuMulai)}</p>
+                          <p className="mt-1 text-xs font-medium text-slate-400">
+                            Ongkos {formatRupiah(entry.biayaOperasionalPerItem)}/item • Alokasi {entry.persenPutarModal}/{entry.persenOwner}/{entry.persenTabungan}
+                          </p>
+                        </div>
+                        {index === 0 && (
+                          <span className="shrink-0 rounded-full bg-emerald-50 px-3 py-1 text-xs font-black text-emerald-700">Aktif</span>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </Panel>
           )}
 
           {(activeView === "dashboard" || activeView === "reports") && (
