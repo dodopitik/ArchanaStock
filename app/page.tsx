@@ -123,6 +123,14 @@ type Expense = {
   date: string;
 };
 
+type DbExpense = {
+  id: string;
+  label: string;
+  amount: number;
+  type: "owner_draw" | "operational";
+  expense_date: string;
+};
+
 type ExpenseFormState = {
   label: string;
   amount: string;
@@ -280,6 +288,16 @@ function mapApiManagedUser(row: ApiManagedUser): ManagedUser {
     role: row.role,
     status: row.status,
     createdAt: row.createdAt,
+  };
+}
+
+function mapDbExpense(row: DbExpense): Expense {
+  return {
+    id: row.id,
+    label: row.label,
+    amount: row.amount,
+    type: row.type,
+    date: row.expense_date,
   };
 }
 
@@ -1087,12 +1105,28 @@ export default function ThriftHatInventoryApp() {
     setUsers((result.users || []).map((row: ApiManagedUser) => mapApiManagedUser(row)));
   }, [supabase]);
 
+  const loadExpenses = useCallback(async () => {
+    if (!supabase) return;
+
+    const token = await getAccessToken(supabase);
+    if (!token) return;
+
+    const response = await fetch("/api/expenses", {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    const result = await response.json();
+
+    if (!response.ok) return;
+
+    setExpenses((result.expenses || []).map((row: DbExpense) => mapDbExpense(row)));
+  }, [supabase]);
+
   const refreshData = useCallback(async () => {
     if (!supabase) return;
     setDataLoading(true);
-    await Promise.all([loadHats(), loadUsers()]);
+    await Promise.all([loadHats(), loadUsers(), loadExpenses()]);
     setDataLoading(false);
-  }, [loadHats, loadUsers, supabase]);
+  }, [loadHats, loadUsers, loadExpenses, supabase]);
 
   async function handleAuth() {
     setMessage("");
@@ -1229,22 +1263,74 @@ export default function ThriftHatInventoryApp() {
     setExpenseForm((current) => ({ ...current, [key]: value }));
   }
 
-  function addExpense() {
+  async function addExpense() {
     if (!expenseForm.label.trim() || !expenseForm.amount) return;
-    const newExpense: Expense = {
-      id: makeLocalId(),
+
+    const payload = {
       label: expenseForm.label.trim(),
       amount: Number(expenseForm.amount),
       type: expenseForm.type,
-      date: toDateInputValue(new Date()),
+      expense_date: toDateInputValue(new Date()),
     };
-    setExpenses((current) => [newExpense, ...current]);
+
+    if (supabase) {
+      const token = await getAccessToken(supabase);
+      if (!token) {
+        setDbMessage("Login Supabase dulu sebelum mencatat pengeluaran.");
+        return;
+      }
+
+      const response = await fetch("/api/expenses", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify(payload),
+      });
+      const result = await response.json();
+
+      if (!response.ok) {
+        setDbMessage(`Gagal simpan pengeluaran: ${result.error || "Server error"}`);
+        return;
+      }
+
+      setExpenses((current) => [mapDbExpense(result.expense as DbExpense), ...current]);
+    } else {
+      const newExpense: Expense = {
+        id: makeLocalId(),
+        label: payload.label,
+        amount: payload.amount,
+        type: payload.type as Expense["type"],
+        date: payload.expense_date,
+      };
+      setExpenses((current) => [newExpense, ...current]);
+    }
+
     setExpenseForm(emptyExpenseForm);
-    setDbMessage(`Pengeluaran "${newExpense.label}" tercatat.`);
+    setDbMessage(`Pengeluaran "${payload.label}" tercatat.`);
   }
 
-  function deleteExpense(id: string) {
+  async function deleteExpense(id: string) {
+    if (supabase && !id.startsWith("local-")) {
+      const token = await getAccessToken(supabase);
+      if (!token) {
+        setDbMessage("Login Supabase dulu sebelum menghapus pengeluaran.");
+        return;
+      }
+
+      const response = await fetch("/api/expenses", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ id }),
+      });
+      const result = await response.json();
+
+      if (!response.ok) {
+        setDbMessage(`Gagal hapus pengeluaran: ${result.error || "Server error"}`);
+        return;
+      }
+    }
+
     setExpenses((current) => current.filter((e) => e.id !== id));
+    setDbMessage("Pengeluaran dihapus.");
   }
 
   function saveConfig() {
@@ -3073,7 +3159,7 @@ export default function ThriftHatInventoryApp() {
                       <option value="owner_draw">Owner Draw</option>
                       <option value="operational">Pengeluaran Lain</option>
                     </select>
-                    <Button onClick={addExpense} disabled={!expenseForm.label.trim() || !expenseForm.amount} className="h-11">
+                    <Button onClick={() => void addExpense()} disabled={!expenseForm.label.trim() || !expenseForm.amount} className="h-11">
                       + Catat
                     </Button>
                   </div>
@@ -3098,7 +3184,7 @@ export default function ThriftHatInventoryApp() {
                           <p className="text-sm font-black text-red-600">-{formatRupiah(expense.amount)}</p>
                           <button
                             type="button"
-                            onClick={() => deleteExpense(expense.id)}
+                            onClick={() => void deleteExpense(expense.id)}
                             className="grid h-8 w-8 place-items-center rounded-lg text-slate-400 transition hover:bg-red-50 hover:text-red-600"
                             title="Hapus"
                             aria-label={`Hapus ${expense.label}`}

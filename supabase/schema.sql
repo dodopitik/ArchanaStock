@@ -57,3 +57,42 @@ create policy "Users can delete own hats"
   );
 
 notify pgrst, 'reload schema';
+
+-- Expenses table for tracking manual expenses (owner draw, operational costs)
+create table if not exists public.expenses (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references auth.users(id) on delete cascade,
+  label text not null,
+  amount integer not null default 0,
+  type text not null default 'operational' check (type in ('owner_draw', 'operational')),
+  expense_date date not null default current_date,
+  created_at timestamptz not null default now()
+);
+
+alter table public.expenses enable row level security;
+
+drop policy if exists "Users can view own expenses" on public.expenses;
+create policy "Users can view own expenses"
+  on public.expenses for select
+  using (
+    auth.uid() = user_id
+    or (auth.jwt() -> 'app_metadata' ->> 'created_by')::uuid = user_id
+  );
+
+drop policy if exists "Users can insert own expenses" on public.expenses;
+create policy "Users can insert own expenses"
+  on public.expenses for insert
+  with check (
+    auth.uid() = user_id
+    or (auth.jwt() -> 'app_metadata' ->> 'created_by')::uuid = user_id
+  );
+
+drop policy if exists "Users can delete own expenses" on public.expenses;
+create policy "Users can delete own expenses"
+  on public.expenses for delete
+  using (
+    auth.uid() = user_id
+    or (auth.jwt() -> 'app_metadata' ->> 'created_by')::uuid = user_id
+  );
+
+notify pgrst, 'reload schema';
