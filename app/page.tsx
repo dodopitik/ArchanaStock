@@ -838,6 +838,7 @@ export default function ThriftHatInventoryApp() {
   const [expensePeriod, setExpensePeriod] = useState<ReportPeriod>("all");
   const [expenseDate, setExpenseDate] = useState(() => toDateInputValue(new Date()));
   const [expenseMonth, setExpenseMonth] = useState(() => toDateInputValue(new Date()).slice(0, 7));
+  const [expenseHistoryOpen, setExpenseHistoryOpen] = useState(false);
   const [form, setForm] = useState<FormState>(emptyForm);
   const [bulkText, setBulkText] = useState("");
   const [expenses, setExpenses] = useState<Expense[]>([]);
@@ -3207,120 +3208,100 @@ export default function ThriftHatInventoryApp() {
                   </div>
                 </div>
 
-                {/* Filter Pengeluaran */}
-                <div className="mt-3 grid gap-3 rounded-xl border border-slate-200 bg-slate-50 p-3">
-                  <div className="grid grid-cols-4 gap-1 rounded-lg bg-white p-1">
-                    {[
-                      { key: "all", label: "Semua" },
-                      { key: "daily", label: "Harian" },
-                      { key: "weekly", label: "Mingguan" },
-                      { key: "monthly", label: "Bulanan" },
-                    ].map((item) => (
-                      <button
-                        key={item.key}
-                        type="button"
-                        onClick={() => setExpensePeriod(item.key as ReportPeriod)}
-                        className={`h-9 rounded-md text-xs font-black transition ${
-                          expensePeriod === item.key ? "bg-slate-950 text-white shadow-sm" : "text-slate-500 hover:bg-slate-100"
-                        }`}
-                      >
-                        {item.label}
-                      </button>
-                    ))}
-                  </div>
-
-                  {expensePeriod !== "all" && (
-                    <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
-                      {(expensePeriod === "daily" || expensePeriod === "weekly") && (
-                        <label className="grid gap-1.5 text-xs font-semibold text-slate-600">
-                          {expensePeriod === "weekly" ? "Tanggal acuan minggu" : "Pilih tanggal"}
-                          <input
-                            type="date"
-                            value={expenseDate}
-                            onChange={(event) => setExpenseDate(event.target.value)}
-                            className="h-10 rounded-lg border border-slate-200 bg-white px-3 text-sm font-medium outline-none transition focus:border-cyan-500 focus:ring-4 focus:ring-cyan-100"
-                          />
-                        </label>
-                      )}
-                      {expensePeriod === "monthly" && (
-                        <label className="grid gap-1.5 text-xs font-semibold text-slate-600">
-                          Pilih bulan
-                          <input
-                            type="month"
-                            value={expenseMonth}
-                            onChange={(event) => setExpenseMonth(event.target.value)}
-                            className="h-10 rounded-lg border border-slate-200 bg-white px-3 text-sm font-medium outline-none transition focus:border-cyan-500 focus:ring-4 focus:ring-cyan-100"
-                          />
-                        </label>
-                      )}
-                      <div className="flex items-end">
-                        <div className="rounded-lg bg-white px-3 py-2">
-                          <p className="text-xs font-bold text-slate-400">Total periode ini</p>
-                          <p className="text-sm font-black text-red-600">-{formatRupiah(totalExpenseFiltered)} ({filteredExpenses.length} transaksi)</p>
-                        </div>
-                      </div>
-                    </div>
-                  )}
+                {/* Toggle Riwayat */}
+                <div className="mt-3">
+                  <button
+                    type="button"
+                    onClick={() => setExpenseHistoryOpen((v) => !v)}
+                    className={`flex h-10 w-full items-center justify-between gap-3 rounded-xl border px-4 text-sm font-bold transition ${
+                      expenseHistoryOpen
+                        ? "border-slate-300 bg-slate-100 text-slate-700"
+                        : "border-slate-200 bg-white text-slate-600 hover:bg-slate-50"
+                    }`}
+                  >
+                    <span>{expenseHistoryOpen ? "Sembunyikan" : "Lihat"} Riwayat Pengeluaran ({expenses.length})</span>
+                    <ChevronRight size={16} className={`shrink-0 transition ${expenseHistoryOpen ? "rotate-90" : ""}`} />
+                  </button>
                 </div>
 
-                {/* Table Pengeluaran */}
-                {filteredExpenses.length > 0 && (
+                {expenseHistoryOpen && (
                   <>
-                    {/* Mobile cards */}
-                    <div className="mt-3 grid gap-2 lg:hidden">
-                      {filteredExpenses.map((expense) => (
-                        <div key={expense.id} className="flex items-center justify-between gap-3 rounded-xl border border-slate-200 bg-white p-3">
-                          <div className="flex items-center gap-3">
-                            <div className={`grid h-9 w-9 shrink-0 place-items-center rounded-lg ${expense.type === "owner_draw" ? "bg-emerald-50 text-emerald-600" : "bg-amber-50 text-amber-600"}`}>
-                              {expense.type === "owner_draw" ? <Wallet size={16} /> : <ArrowDownCircle size={16} />}
+                    {/* Filter Pengeluaran */}
+                    <div className="mt-3 grid gap-3 rounded-xl border border-slate-200 bg-slate-50 p-3">
+                      <div className="grid grid-cols-4 gap-1 rounded-lg bg-white p-1">
+                        {[
+                          { key: "all", label: "Semua" },
+                          { key: "daily", label: "Harian" },
+                          { key: "weekly", label: "Mingguan" },
+                          { key: "monthly", label: "Bulanan" },
+                        ].map((item) => (
+                          <button
+                            key={item.key}
+                            type="button"
+                            onClick={() => setExpensePeriod(item.key as ReportPeriod)}
+                            className={`h-9 rounded-md text-xs font-black transition ${
+                              expensePeriod === item.key ? "bg-slate-950 text-white shadow-sm" : "text-slate-500 hover:bg-slate-100"
+                            }`}
+                          >
+                            {item.label}
+                          </button>
+                        ))}
+                      </div>
+
+                      {expensePeriod !== "all" && (
+                        <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
+                          {(expensePeriod === "daily" || expensePeriod === "weekly") && (
+                            <label className="grid gap-1.5 text-xs font-semibold text-slate-600">
+                              {expensePeriod === "weekly" ? "Tanggal acuan minggu" : "Pilih tanggal"}
+                              <input
+                                type="date"
+                                value={expenseDate}
+                                onChange={(event) => setExpenseDate(event.target.value)}
+                                className="h-10 rounded-lg border border-slate-200 bg-white px-3 text-sm font-medium outline-none transition focus:border-cyan-500 focus:ring-4 focus:ring-cyan-100"
+                              />
+                            </label>
+                          )}
+                          {expensePeriod === "monthly" && (
+                            <label className="grid gap-1.5 text-xs font-semibold text-slate-600">
+                              Pilih bulan
+                              <input
+                                type="month"
+                                value={expenseMonth}
+                                onChange={(event) => setExpenseMonth(event.target.value)}
+                                className="h-10 rounded-lg border border-slate-200 bg-white px-3 text-sm font-medium outline-none transition focus:border-cyan-500 focus:ring-4 focus:ring-cyan-100"
+                              />
+                            </label>
+                          )}
+                          <div className="flex items-end">
+                            <div className="rounded-lg bg-white px-3 py-2">
+                              <p className="text-xs font-bold text-slate-400">Total periode ini</p>
+                              <p className="text-sm font-black text-red-600">-{formatRupiah(totalExpenseFiltered)} ({filteredExpenses.length} transaksi)</p>
                             </div>
-                            <div>
-                              <p className="text-sm font-bold text-slate-950">{expense.label}</p>
-                              <p className="text-xs font-medium text-slate-400">
-                                {expense.type === "owner_draw" ? "Owner Draw" : "Pengeluaran Lain"} • {formatDisplayDate(expense.date)}
-                              </p>
-                            </div>
-                          </div>
-                          <div className="flex items-center gap-2">
-                            <p className="text-sm font-black text-red-600">-{formatRupiah(expense.amount)}</p>
-                            <button
-                              type="button"
-                              onClick={() => void deleteExpense(expense.id)}
-                              className="grid h-8 w-8 place-items-center rounded-lg text-slate-400 transition hover:bg-red-50 hover:text-red-600"
-                              title="Hapus"
-                              aria-label={`Hapus ${expense.label}`}
-                            >
-                              <Trash2 size={14} />
-                            </button>
                           </div>
                         </div>
-                      ))}
+                      )}
                     </div>
 
-                    {/* Desktop table */}
-                    <div className="mt-3 hidden overflow-x-auto rounded-xl border border-slate-200 lg:block">
-                      <table className="w-full min-w-[600px] text-left text-sm">
-                        <thead className="bg-slate-50 text-xs font-bold uppercase text-slate-500">
-                          <tr>
-                            <th className="px-4 py-3">Tanggal</th>
-                            <th className="px-4 py-3">Keterangan</th>
-                            <th className="px-4 py-3">Tipe</th>
-                            <th className="px-4 py-3 text-right">Jumlah</th>
-                            <th className="px-4 py-3">Aksi</th>
-                          </tr>
-                        </thead>
-                        <tbody className="divide-y divide-slate-100 bg-white">
+                    {/* Table Pengeluaran */}
+                    {filteredExpenses.length > 0 && (
+                      <>
+                        {/* Mobile cards */}
+                        <div className="mt-3 grid gap-2 lg:hidden">
                           {filteredExpenses.map((expense) => (
-                            <tr key={expense.id}>
-                              <td className="px-4 py-3 font-medium text-slate-600">{formatDisplayDate(expense.date)}</td>
-                              <td className="px-4 py-3 font-bold text-slate-950">{expense.label}</td>
-                              <td className="px-4 py-3">
-                                <span className={`rounded-full px-3 py-1 text-xs font-black ${expense.type === "owner_draw" ? "bg-emerald-50 text-emerald-700" : "bg-amber-50 text-amber-700"}`}>
-                                  {expense.type === "owner_draw" ? "Owner Draw" : "Operasional"}
-                                </span>
-                              </td>
-                              <td className="px-4 py-3 text-right font-black text-red-600">-{formatRupiah(expense.amount)}</td>
-                              <td className="px-4 py-3">
+                            <div key={expense.id} className="flex items-center justify-between gap-3 rounded-xl border border-slate-200 bg-white p-3">
+                              <div className="flex items-center gap-3">
+                                <div className={`grid h-9 w-9 shrink-0 place-items-center rounded-lg ${expense.type === "owner_draw" ? "bg-emerald-50 text-emerald-600" : "bg-amber-50 text-amber-600"}`}>
+                                  {expense.type === "owner_draw" ? <Wallet size={16} /> : <ArrowDownCircle size={16} />}
+                                </div>
+                                <div>
+                                  <p className="text-sm font-bold text-slate-950">{expense.label}</p>
+                                  <p className="text-xs font-medium text-slate-400">
+                                    {expense.type === "owner_draw" ? "Owner Draw" : "Pengeluaran Lain"} • {formatDisplayDate(expense.date)}
+                                  </p>
+                                </div>
+                              </div>
+                              <div className="flex items-center gap-2">
+                                <p className="text-sm font-black text-red-600">-{formatRupiah(expense.amount)}</p>
                                 <button
                                   type="button"
                                   onClick={() => void deleteExpense(expense.id)}
@@ -3330,26 +3311,66 @@ export default function ThriftHatInventoryApp() {
                                 >
                                   <Trash2 size={14} />
                                 </button>
-                              </td>
-                            </tr>
+                              </div>
+                            </div>
                           ))}
-                        </tbody>
-                        <tfoot className="bg-slate-50">
-                          <tr>
-                            <td colSpan={3} className="px-4 py-3 text-xs font-black uppercase text-slate-500">Total</td>
-                            <td className="px-4 py-3 text-right font-black text-red-700">-{formatRupiah(totalExpenseFiltered)}</td>
-                            <td />
-                          </tr>
-                        </tfoot>
-                      </table>
-                    </div>
-                  </>
-                )}
+                        </div>
 
-                {!filteredExpenses.length && (
-                  <div className="mt-3 rounded-xl border border-dashed border-slate-300 p-6 text-center text-sm font-medium text-slate-500">
-                    Belum ada pengeluaran pada periode ini.
-                  </div>
+                        {/* Desktop table */}
+                        <div className="mt-3 hidden overflow-x-auto rounded-xl border border-slate-200 lg:block">
+                          <table className="w-full min-w-[600px] text-left text-sm">
+                            <thead className="bg-slate-50 text-xs font-bold uppercase text-slate-500">
+                              <tr>
+                                <th className="px-4 py-3">Tanggal</th>
+                                <th className="px-4 py-3">Keterangan</th>
+                                <th className="px-4 py-3">Tipe</th>
+                                <th className="px-4 py-3 text-right">Jumlah</th>
+                                <th className="px-4 py-3">Aksi</th>
+                              </tr>
+                            </thead>
+                            <tbody className="divide-y divide-slate-100 bg-white">
+                              {filteredExpenses.map((expense) => (
+                                <tr key={expense.id}>
+                                  <td className="px-4 py-3 font-medium text-slate-600">{formatDisplayDate(expense.date)}</td>
+                                  <td className="px-4 py-3 font-bold text-slate-950">{expense.label}</td>
+                                  <td className="px-4 py-3">
+                                    <span className={`rounded-full px-3 py-1 text-xs font-black ${expense.type === "owner_draw" ? "bg-emerald-50 text-emerald-700" : "bg-amber-50 text-amber-700"}`}>
+                                      {expense.type === "owner_draw" ? "Owner Draw" : "Operasional"}
+                                    </span>
+                                  </td>
+                                  <td className="px-4 py-3 text-right font-black text-red-600">-{formatRupiah(expense.amount)}</td>
+                                  <td className="px-4 py-3">
+                                    <button
+                                      type="button"
+                                      onClick={() => void deleteExpense(expense.id)}
+                                      className="grid h-8 w-8 place-items-center rounded-lg text-slate-400 transition hover:bg-red-50 hover:text-red-600"
+                                      title="Hapus"
+                                      aria-label={`Hapus ${expense.label}`}
+                                    >
+                                      <Trash2 size={14} />
+                                    </button>
+                                  </td>
+                                </tr>
+                              ))}
+                            </tbody>
+                            <tfoot className="bg-slate-50">
+                              <tr>
+                                <td colSpan={3} className="px-4 py-3 text-xs font-black uppercase text-slate-500">Total</td>
+                                <td className="px-4 py-3 text-right font-black text-red-700">-{formatRupiah(totalExpenseFiltered)}</td>
+                                <td />
+                              </tr>
+                            </tfoot>
+                          </table>
+                        </div>
+                      </>
+                    )}
+
+                    {!filteredExpenses.length && (
+                      <div className="mt-3 rounded-xl border border-dashed border-slate-300 p-6 text-center text-sm font-medium text-slate-500">
+                        Belum ada pengeluaran pada periode ini.
+                      </div>
+                    )}
+                  </>
                 )}
               </div>
 
