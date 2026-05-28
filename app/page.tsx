@@ -815,7 +815,7 @@ export default function ThriftHatInventoryApp() {
   const mounted = useSyncExternalStore(subscribeToClientReady, getClientSnapshot, getServerSnapshot);
   const [activeView, setActiveView] = useState<ViewKey>("dashboard");
   const [mobileNavVisible, setMobileNavVisible] = useState(true);
-  const [stockView, setStockView] = useState<StockView>("list");
+  const [stockView, setStockView] = useState<StockView>("grid2");
   const [hats, setHats] = useState<Hat[]>(initialHats);
   const [users, setUsers] = useState<ManagedUser[]>(initialUsers);
   const [query, setQuery] = useState("");
@@ -3115,53 +3115,63 @@ export default function ThriftHatInventoryApp() {
 
               {/* Cash Bisnis */}
               <div className="mt-5">
-                <h3 className="mb-3 text-sm font-black uppercase tracking-wide text-slate-500">Cash Bisnis</h3>
+                <div className="mb-3 flex items-center gap-2">
+                  <h3 className="text-sm font-black uppercase tracking-wide text-slate-500">Cash Bisnis</h3>
+                  <FormulaTooltip formula="Cash Bisnis = uang hasil jualan yang masih tersisa setelah dikurangi belanja restock, ongkos operasional, dan pengeluaran manual. Ini bukan profit — ini saldo uang nyata bisnis kamu." />
+                </div>
+
                 <div className={`rounded-xl border-2 p-5 ${stats.cashBisnis >= 0 ? "border-emerald-200 bg-gradient-to-br from-emerald-50 to-white" : "border-red-200 bg-gradient-to-br from-red-50 to-white"}`}>
+                  {/* Saldo utama */}
                   <div className="flex items-center justify-between gap-4">
                     <div>
-                      <p className="text-xs font-bold uppercase text-slate-400">Saldo Cash Bisnis</p>
-                      <p className={`mt-2 text-3xl font-black ${stats.cashBisnis >= 0 ? "text-emerald-700" : "text-red-700"}`}>
+                      <p className={`text-3xl font-black ${stats.cashBisnis >= 0 ? "text-emerald-700" : "text-red-700"}`}>
                         {formatRupiah(stats.cashBisnis)}
                       </p>
-                      <p className="mt-1 text-xs font-medium text-slate-500">Uang yang tersedia di bisnis saat ini</p>
+                      <p className="mt-1 text-xs font-semibold text-slate-500">Sisa uang bisnis yang bisa dipakai</p>
                     </div>
-                    <div className={`grid h-14 w-14 shrink-0 place-items-center rounded-xl ${stats.cashBisnis >= 0 ? "bg-emerald-100 text-emerald-700" : "bg-red-100 text-red-700"}`}>
-                      <Wallet size={26} />
+                    <div className={`grid h-12 w-12 shrink-0 place-items-center rounded-xl ${stats.cashBisnis >= 0 ? "bg-emerald-100 text-emerald-700" : "bg-red-100 text-red-700"}`}>
+                      <Wallet size={24} />
                     </div>
                   </div>
 
-                  <div className="mt-4 grid gap-2 rounded-lg border border-slate-200 bg-white p-3">
-                    <p className="text-xs font-bold uppercase text-slate-400">Otomatis dari data</p>
-                    <div className="flex items-center justify-between gap-3 text-sm">
-                      <span className="font-medium text-emerald-600">+ Penjualan</span>
-                      <span className="font-bold text-emerald-700">{formatRupiah(stats.revenue)}</span>
+                  {/* Ringkasan 2 kolom: masuk vs keluar */}
+                  <div className="mt-4 grid gap-3 sm:grid-cols-2">
+                    <div className="rounded-lg border border-emerald-200 bg-emerald-50/50 p-3">
+                      <p className="text-xs font-bold text-emerald-600">Uang Masuk</p>
+                      <p className="mt-1 text-lg font-black text-emerald-700">{formatRupiah(stats.revenue)}</p>
+                      <p className="mt-1 text-xs text-emerald-600/70">{stats.sold} item terjual</p>
                     </div>
-                    <div className="flex items-center justify-between gap-3 text-sm">
-                      <span className="font-medium text-red-500">− Restock (barang baru masuk)</span>
-                      <span className="font-bold text-red-600">-{formatRupiah(stats.sudahDiRestock)}</span>
-                    </div>
-                    <div className="flex items-center justify-between gap-3 text-sm">
-                      <span className="font-medium text-red-500">− Biaya operasional ({formatRupiah(financeConfig.biayaOperasionalPerItem)} × {stats.sold})</span>
-                      <span className="font-bold text-red-600">-{formatRupiah(stats.biayaOperasional)}</span>
-                    </div>
-                    <div className="border-t border-slate-100 pt-2">
-                      <p className="text-xs font-bold uppercase text-slate-400">Manual (dicatat sendiri)</p>
-                    </div>
-                    <div className="flex items-center justify-between gap-3 text-sm">
-                      <span className="font-medium text-red-500">− Owner draw</span>
-                      <span className="font-bold text-red-600">-{formatRupiah(stats.totalOwnerDraw)}</span>
-                    </div>
-                    <div className="flex items-center justify-between gap-3 text-sm">
-                      <span className="font-medium text-red-500">− Pengeluaran lain</span>
-                      <span className="font-bold text-red-600">-{formatRupiah(stats.totalOperational)}</span>
-                    </div>
-                    <div className="border-t border-slate-100 pt-2">
-                      <div className="flex items-center justify-between gap-3 text-sm">
-                        <span className="font-black text-slate-700">= Saldo cash bisnis</span>
-                        <span className={`font-black ${stats.cashBisnis >= 0 ? "text-emerald-700" : "text-red-700"}`}>{formatRupiah(stats.cashBisnis)}</span>
-                      </div>
+                    <div className="rounded-lg border border-red-200 bg-red-50/50 p-3">
+                      <p className="text-xs font-bold text-red-500">Uang Keluar</p>
+                      <p className="mt-1 text-lg font-black text-red-700">{formatRupiah(stats.sudahDiRestock + stats.biayaOperasional + stats.totalOwnerDraw + stats.totalOperational)}</p>
+                      <p className="mt-1 text-xs text-red-500/70">Restock + ongkos + pengeluaran</p>
                     </div>
                   </div>
+
+                  {/* Detail pengeluaran (collapsible-style, compact) */}
+                  <details className="mt-3 rounded-lg border border-slate-200 bg-white">
+                    <summary className="cursor-pointer px-3 py-2.5 text-xs font-bold text-slate-500 hover:text-slate-700">
+                      Lihat rincian uang keluar
+                    </summary>
+                    <div className="grid gap-1.5 border-t border-slate-100 px-3 py-2.5">
+                      <div className="flex items-center justify-between gap-3 text-xs">
+                        <span className="text-slate-500">Restock barang baru</span>
+                        <span className="font-bold text-slate-700">{formatRupiah(stats.sudahDiRestock)}</span>
+                      </div>
+                      <div className="flex items-center justify-between gap-3 text-xs">
+                        <span className="text-slate-500">Ongkos operasional ({formatRupiah(financeConfig.biayaOperasionalPerItem)} × {stats.sold})</span>
+                        <span className="font-bold text-slate-700">{formatRupiah(stats.biayaOperasional)}</span>
+                      </div>
+                      <div className="flex items-center justify-between gap-3 text-xs">
+                        <span className="text-slate-500">Owner draw</span>
+                        <span className="font-bold text-slate-700">{formatRupiah(stats.totalOwnerDraw)}</span>
+                      </div>
+                      <div className="flex items-center justify-between gap-3 text-xs">
+                        <span className="text-slate-500">Pengeluaran lain</span>
+                        <span className="font-bold text-slate-700">{formatRupiah(stats.totalOperational)}</span>
+                      </div>
+                    </div>
+                  </details>
                 </div>
               </div>
 
