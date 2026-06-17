@@ -60,7 +60,8 @@ export async function POST(request: Request) {
   const body = await request.json();
   const label = String(body.label || "").trim();
   const amount = Number(body.amount || 0);
-  const type = body.type === "owner_draw" ? "owner_draw" : "operational";
+  const allowedTypes = ["owner_draw", "operational", "owner_capital", "savings_deposit", "savings_withdraw"];
+  const type = allowedTypes.includes(body.type) ? body.type : "operational";
   const expenseDate = String(body.expense_date || new Date().toISOString().slice(0, 10));
 
   if (!label) return jsonError("Keterangan pengeluaran wajib diisi.");

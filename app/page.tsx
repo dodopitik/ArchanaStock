@@ -115,11 +115,13 @@ type ReportFormState = {
   soldAt: string;
 };
 
+type ExpenseType = "owner_draw" | "operational" | "owner_capital" | "savings_deposit" | "savings_withdraw";
+
 type Expense = {
   id: string;
   label: string;
   amount: number;
-  type: "owner_draw" | "operational";
+  type: ExpenseType;
   date: string;
 };
 
@@ -127,15 +129,31 @@ type DbExpense = {
   id: string;
   label: string;
   amount: number;
-  type: "owner_draw" | "operational";
+  type: ExpenseType;
   expense_date: string;
 };
 
 type ExpenseFormState = {
   label: string;
   amount: string;
-  type: "owner_draw" | "operational";
+  type: ExpenseType;
 };
+
+/**
+ * Metadata tampilan tiap jenis transaksi keuangan.
+ * direction: out = uang keluar, in = uang masuk (suntik modal), save = transfer tabungan.
+ */
+const EXPENSE_TYPE_META: Record<ExpenseType, { label: string; short: string; direction: "out" | "in" | "save" }> = {
+  owner_draw: { label: "Owner Draw — tarik uang untuk owner", short: "Owner Draw", direction: "out" },
+  operational: { label: "Pengeluaran Operasional", short: "Operasional", direction: "out" },
+  owner_capital: { label: "Talangan Owner — suntik uang pribadi", short: "Talangan Owner", direction: "in" },
+  savings_deposit: { label: "Setor ke Tabungan", short: "Setor Tabungan", direction: "save" },
+  savings_withdraw: { label: "Tarik dari Tabungan", short: "Tarik Tabungan", direction: "save" },
+};
+
+function getExpenseMeta(type: ExpenseType) {
+  return EXPENSE_TYPE_META[type] || EXPENSE_TYPE_META.operational;
+}
 
 type BulkItem = {
   name: string;
@@ -923,6 +941,9 @@ export default function ThriftHatInventoryApp() {
     // Expenses manual
     const totalOwnerDraw = expenses.filter((e) => e.type === "owner_draw").reduce((sum, e) => sum + e.amount, 0);
     const totalOperational = expenses.filter((e) => e.type === "operational").reduce((sum, e) => sum + e.amount, 0);
+    const totalCapitalInjection = expenses.filter((e) => e.type === "owner_capital").reduce((sum, e) => sum + e.amount, 0);
+    const totalSavingsDeposit = expenses.filter((e) => e.type === "savings_deposit").reduce((sum, e) => sum + e.amount, 0);
+    const totalSavingsWithdraw = expenses.filter((e) => e.type === "savings_withdraw").reduce((sum, e) => sum + e.amount, 0);
 
     // Restock budget: modal barang terjual + 70% profit bersih
     const soldWithDates = sold.filter((hat) => hat.soldAt);
@@ -934,17 +955,84 @@ export default function ThriftHatInventoryApp() {
       ? available.filter((hat) => hat.boughtAt > firstSoldDate).reduce((sum, hat) => sum + hat.costPrice, 0)
       : 0;
 
-    const budgetRestock = costSold + alokasiBeliBaru;
-    const sisaBudgetRestock = budgetRestock - sudahDiRestock;
+    // Modal awal = total modal semua barang yang dibeli SEBELUM/PADA penjualan pertama
+    // (modal startup dari kantong owner, bukan dari hasil jualan). Dipisah dari cash bisnis.
+    const modalAwal = firstSoldDate
+      ? hats.filter((hat) => hat.boughtAt <= firstSoldDate).reduce((sum, hat) => sum + hat.costPrice, 0)
+      : hats.reduce((sum, hat) => sum + hat.costPrice, 0);
 
-    // Cash bisnis = revenue - restock (sudah di-restock) - owner draw - pengeluaran lain - biaya operasional
-    const cashBisnis = revenue - sudahDiRestock - totalOwnerDraw - totalOperational - biayaOperasional;
+    const budgetRestock = costSold + alokasiBeliBaru;
+
+    // ===== Model dompet bersaldo nyata =====
+    // Tiga dompet: Putar Modal (operasional/restock), Owner (jatah profit), Tabungan.
+    // Plus dua posisi owner: Kasbon (owner utang ke bisnis) & Talangan (bisnis utang ke owner).
+    let putarModal = costSold + alokasiBeliBaru; // modal terjual balik + jatah putar modal
+    let ownerBal = alokasiOwner;
+    let tabunganBal = alokasiTabungan;
+    let ownerDebt = 0; // Kasbon: owner pinjam dari bisnis
+    let ownerCapital = 0; // Talangan: bisnis pinjam dari owner
+
+    // 1) Talangan owner (suntik modal pribadi): uang masuk ke Putar Modal, bisnis berutang ke owner.
+    putarModal += totalCapitalInjection;
+    ownerCapital += totalCapitalInjection;
+
+    // 2) Setor/tarik tabungan: transfer internal Putar Modal <-> Tabungan.
+    putarModal -= totalSavingsDeposit;
+    tabunganBal += totalSavingsDeposit;
+    tabunganBal -= totalSavingsWithdraw;
+    putarModal += totalSavingsWithdraw;
+
+    // 3) Owner draw: lunasi talangan dulu, lalu ambil jatah owner, sisanya jadi kasbon.
+    let drawLeft = totalOwnerDraw;
+    const repayTalangan = Math.min(drawLeft, ownerCapital);
+    ownerCapital -= repayTalangan;
+    putarModal -= repayTalangan; // bisnis bayar balik uang yang ditalangi owner
+    drawLeft -= repayTalangan;
+
+    const fromOwnerShare = Math.min(drawLeft, Math.max(0, ownerBal));
+    ownerBal -= fromOwnerShare;
+    drawLeft -= fromOwnerShare;
+
+    let kasbonFromPutar = 0;
+    let kasbonFromTabungan = 0;
+    if (drawLeft > 0) {
+      // Kelebihan tarik = kasbon. Dipinjam dari Putar Modal dulu, lalu Tabungan.
+      ownerDebt += drawLeft;
+      kasbonFromPutar = Math.min(drawLeft, Math.max(0, putarModal));
+      putarModal -= kasbonFromPutar;
+      kasbonFromTabungan = drawLeft - kasbonFromPutar;
+      tabunganBal -= kasbonFromTabungan;
+    }
+
+    // Total owner draw yang membebani dompet Putar Modal (untuk breakdown).
+    const ownerDrawDariPutar = repayTalangan + kasbonFromPutar;
+
+    // 4) Pengeluaran operasional manual: keluar dari Putar Modal.
+    putarModal -= totalOperational;
+
+    // 5) Restock barang baru (setelah jualan pertama): keluar dari Putar Modal.
+    putarModal -= sudahDiRestock;
+
+    // Kalau Putar Modal jebol (minus), tutup dari Tabungan — tapi Tabungan cuma sampai 0,
+    // tidak boleh minus. Sisa kekurangan dibiarkan di Putar Modal (minus).
+    const ditutupDariTabungan = putarModal < 0 ? Math.min(-putarModal, Math.max(0, tabunganBal)) : 0;
+    putarModal += ditutupDariTabungan;
+    tabunganBal -= ditutupDariTabungan;
+
+    const cashBisnis = putarModal + ownerBal + tabunganBal;
+    const sisaBudgetRestock = putarModal; // sisa dana yang benar-benar ada untuk restock
+    const kelebihanTarik = ownerDebt; // kompat lama: kasbon owner
+
+    // Potensi dobel hitung: ongkos per-item + operasional manual jalan bareng.
+    const adaPotensiDobelOngkos = financeConfig.biayaOperasionalPerItem > 0 && totalOperational > 0;
 
     return {
       available: available.length, sold: sold.length, revenue, profit, profitBersih, biayaOperasional,
       stockValue, costSold, alokasiBeliBaru, alokasiOwner, alokasiTabungan,
-      budgetRestock, sudahDiRestock, sisaBudgetRestock,
-      totalOwnerDraw, totalOperational, cashBisnis,
+      budgetRestock, sudahDiRestock, sisaBudgetRestock, kelebihanTarik, modalAwal,
+      totalOwnerDraw, totalOperational, totalCapitalInjection, totalSavingsDeposit, totalSavingsWithdraw,
+      putarModal, ownerBal, tabunganBal, ownerDebt, ownerCapital, cashBisnis, adaPotensiDobelOngkos,
+      ownerDrawDariPutar, ditutupDariTabungan,
     };
   }, [hats, expenses, financeConfig, configHistory]);
 
@@ -1040,7 +1128,10 @@ export default function ThriftHatInventoryApp() {
     return expenses.filter((e) => e.date >= startDate && e.date <= endDate);
   }, [expenses, expensePeriod, expenseDate, expenseMonth]);
 
-  const totalExpenseFiltered = useMemo(() => filteredExpenses.reduce((sum, e) => sum + e.amount, 0), [filteredExpenses]);
+  const totalExpenseFiltered = useMemo(
+    () => filteredExpenses.filter((e) => getExpenseMeta(e.type).direction === "out").reduce((sum, e) => sum + e.amount, 0),
+    [filteredExpenses],
+  );
 
   const salesChart = useMemo(() => {
     const salesByDate = new Map<string, { revenue: number; count: number }>();
@@ -3118,8 +3209,17 @@ export default function ThriftHatInventoryApp() {
               <div className="mt-5">
                 <div className="mb-3 flex items-center gap-2">
                   <h3 className="text-sm font-black uppercase tracking-wide text-slate-500">Cash Bisnis</h3>
-                  <FormulaTooltip formula="Cash Bisnis = uang hasil jualan yang masih tersisa setelah dikurangi belanja restock, ongkos operasional, dan pengeluaran manual. Ini bukan profit — ini saldo uang nyata bisnis kamu." />
+                  <FormulaTooltip formula="Cash Bisnis = total saldo 3 dompet (Putar Modal + Owner + Tabungan). Ini saldo uang nyata bisnis, bukan profit. Modal awal startup tidak dihitung sebagai pengeluaran di sini." />
                 </div>
+
+                {stats.adaPotensiDobelOngkos && (
+                  <div className="mb-3 flex items-start gap-3 rounded-xl border border-amber-200 bg-amber-50 p-3">
+                    <Info size={18} className="mt-0.5 shrink-0 text-amber-600" />
+                    <p className="text-xs leading-5 text-amber-800">
+                      <span className="font-bold">Hati-hati dobel hitung ongkos.</span> Kamu pakai ongkos per-item ({formatRupiah(financeConfig.biayaOperasionalPerItem)}/item) DAN mencatat pengeluaran operasional manual. Kalau dua-duanya menutup biaya yang sama (ongkir/iklan/packing), biayanya kehitung dua kali. Kalau operasional sudah dicatat manual, set ongkos per-item ke 0 di menu Konfigurasi.
+                    </p>
+                  </div>
+                )}
 
                 <div className={`rounded-xl border-2 p-5 ${stats.cashBisnis >= 0 ? "border-emerald-200 bg-gradient-to-br from-emerald-50 to-white" : "border-red-200 bg-gradient-to-br from-red-50 to-white"}`}>
                   {/* Saldo utama */}
@@ -3128,19 +3228,67 @@ export default function ThriftHatInventoryApp() {
                       <p className={`text-3xl font-black ${stats.cashBisnis >= 0 ? "text-emerald-700" : "text-red-700"}`}>
                         {formatRupiah(stats.cashBisnis)}
                       </p>
-                      <p className="mt-1 text-xs font-semibold text-slate-500">Sisa uang bisnis yang bisa dipakai</p>
+                      <p className="mt-1 text-xs font-semibold text-slate-500">Total saldo 3 dompet bisnis</p>
                     </div>
                     <div className={`grid h-12 w-12 shrink-0 place-items-center rounded-xl ${stats.cashBisnis >= 0 ? "bg-emerald-100 text-emerald-700" : "bg-red-100 text-red-700"}`}>
                       <Wallet size={24} />
                     </div>
                   </div>
 
-                  {/* Ringkasan 2 kolom: masuk vs keluar */}
-                  <div className="mt-4 grid gap-3 sm:grid-cols-2">
+                  {/* 3 Dompet */}
+                  <div className="mt-4 grid gap-3 sm:grid-cols-3">
+                    <div className={`rounded-xl border-2 p-3 ${stats.putarModal >= 0 ? "border-cyan-200 bg-cyan-50/60" : "border-red-200 bg-red-50/60"}`}>
+                      <div className="flex items-center gap-2">
+                        <Repeat size={15} className={stats.putarModal >= 0 ? "text-cyan-600" : "text-red-600"} />
+                        <p className="text-xs font-black uppercase text-slate-500">Putar Modal</p>
+                      </div>
+                      <p className={`mt-2 text-lg font-black ${stats.putarModal >= 0 ? "text-cyan-700" : "text-red-700"}`}>{formatRupiah(stats.putarModal)}</p>
+                      <p className="mt-1 text-[11px] font-medium text-slate-400">Dana buat restock & operasional</p>
+                    </div>
+                    <div className={`rounded-xl border-2 p-3 ${stats.ownerBal >= 0 ? "border-emerald-200 bg-emerald-50/60" : "border-red-200 bg-red-50/60"}`}>
+                      <div className="flex items-center gap-2">
+                        <Wallet size={15} className="text-emerald-600" />
+                        <p className="text-xs font-black uppercase text-slate-500">Owner</p>
+                      </div>
+                      <p className="mt-2 text-lg font-black text-emerald-700">{formatRupiah(stats.ownerBal)}</p>
+                      <p className="mt-1 text-[11px] font-medium text-slate-400">Jatah owner yang belum ditarik</p>
+                    </div>
+                    <div className={`rounded-xl border-2 p-3 ${stats.tabunganBal >= 0 ? "border-amber-200 bg-amber-50/60" : "border-red-200 bg-red-50/60"}`}>
+                      <div className="flex items-center gap-2">
+                        <PiggyBank size={15} className={stats.tabunganBal >= 0 ? "text-amber-600" : "text-red-600"} />
+                        <p className="text-xs font-black uppercase text-slate-500">Tabungan</p>
+                      </div>
+                      <p className={`mt-2 text-lg font-black ${stats.tabunganBal >= 0 ? "text-amber-700" : "text-red-700"}`}>{formatRupiah(stats.tabunganBal)}</p>
+                      <p className="mt-1 text-[11px] font-medium text-slate-400">{stats.tabunganBal >= 0 ? "Tabungan darurat bisnis" : "Kepakai nutup kekurangan dana"}</p>
+                    </div>
+                  </div>
+
+                  {/* Status Kasbon / Talangan Owner */}
+                  {(stats.ownerDebt > 0 || stats.ownerCapital > 0) && (
+                    <div className="mt-3 grid gap-2 sm:grid-cols-2">
+                      {stats.ownerDebt > 0 && (
+                        <div className="rounded-xl border border-red-200 bg-red-50/60 p-3">
+                          <p className="text-xs font-black uppercase text-red-500">Kasbon Owner</p>
+                          <p className="mt-1 text-lg font-black text-red-700">{formatRupiah(stats.ownerDebt)}</p>
+                          <p className="mt-1 text-[11px] font-medium text-red-500/80">Owner narik lebih dari jatah → owner utang ke bisnis. Otomatis lunas dari jatah profit berikutnya.</p>
+                        </div>
+                      )}
+                      {stats.ownerCapital > 0 && (
+                        <div className="rounded-xl border border-emerald-200 bg-emerald-50/60 p-3">
+                          <p className="text-xs font-black uppercase text-emerald-600">Talangan Owner</p>
+                          <p className="mt-1 text-lg font-black text-emerald-700">{formatRupiah(stats.ownerCapital)}</p>
+                          <p className="mt-1 text-[11px] font-medium text-emerald-600/80">Owner nombok pakai uang pribadi → bisnis utang ke owner. Bisa ditarik balik kapan saja.</p>
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {/* Ringkasan masuk vs keluar */}
+                  <div className="mt-3 grid gap-3 sm:grid-cols-2">
                     <div className="rounded-lg border border-emerald-200 bg-emerald-50/50 p-3">
                       <p className="text-xs font-bold text-emerald-600">Uang Masuk</p>
-                      <p className="mt-1 text-lg font-black text-emerald-700">{formatRupiah(stats.revenue)}</p>
-                      <p className="mt-1 text-xs text-emerald-600/70">{stats.sold} item terjual</p>
+                      <p className="mt-1 text-lg font-black text-emerald-700">{formatRupiah(stats.revenue + stats.totalCapitalInjection)}</p>
+                      <p className="mt-1 text-xs text-emerald-600/70">{stats.sold} item terjual{stats.totalCapitalInjection > 0 ? " + talangan owner" : ""}</p>
                     </div>
                     <div className="rounded-lg border border-red-200 bg-red-50/50 p-3">
                       <p className="text-xs font-bold text-red-500">Uang Keluar</p>
@@ -3149,7 +3297,21 @@ export default function ThriftHatInventoryApp() {
                     </div>
                   </div>
 
-                  {/* Detail pengeluaran (collapsible-style, compact) */}
+                  {/* Modal awal + catatan defisit */}
+                  <div className="mt-3 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-slate-200 bg-white px-3 py-2.5">
+                    <div className="flex items-center gap-2">
+                      <Landmark size={15} className="text-slate-400" />
+                      <span className="text-xs font-semibold text-slate-500">Modal Awal (startup, di luar cash)</span>
+                    </div>
+                    <span className="text-sm font-black text-slate-700">{formatRupiah(stats.modalAwal)}</span>
+                  </div>
+                  {stats.cashBisnis < 0 && (
+                    <p className="mt-2 text-xs leading-5 text-red-600">
+                      Cash minus {formatRupiah(Math.abs(stats.cashBisnis))} — artinya pengeluaran (terutama owner draw) sudah memakan habis hasil jualan dan menutup kekurangannya dari modal awal/uang pribadi. Kurangi tarikan atau catat talangan owner kalau kamu nombok.
+                    </p>
+                  )}
+
+                  {/* Detail pengeluaran */}
                   <details className="mt-3 rounded-lg border border-slate-200 bg-white">
                     <summary className="cursor-pointer px-3 py-2.5 text-xs font-bold text-slate-500 hover:text-slate-700">
                       Lihat rincian uang keluar
@@ -3168,7 +3330,7 @@ export default function ThriftHatInventoryApp() {
                         <span className="font-bold text-slate-700">{formatRupiah(stats.totalOwnerDraw)}</span>
                       </div>
                       <div className="flex items-center justify-between gap-3 text-xs">
-                        <span className="text-slate-500">Pengeluaran lain</span>
+                        <span className="text-slate-500">Pengeluaran operasional manual</span>
                         <span className="font-bold text-slate-700">{formatRupiah(stats.totalOperational)}</span>
                       </div>
                     </div>
@@ -3180,7 +3342,7 @@ export default function ThriftHatInventoryApp() {
               <div className="mt-5">
                 <h3 className="mb-3 text-sm font-black uppercase tracking-wide text-slate-500">Catat Pengeluaran</h3>
                 <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
-                  <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_120px_140px_auto]">
+                  <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_120px_190px_auto]">
                     <input
                       value={expenseForm.label}
                       onChange={(event) => updateExpenseForm("label", event.target.value)}
@@ -3199,13 +3361,27 @@ export default function ThriftHatInventoryApp() {
                       onChange={(event) => updateExpenseForm("type", event.target.value)}
                       className="h-11 rounded-lg border border-slate-200 bg-white px-3 text-sm font-medium text-slate-950 outline-none transition focus:border-cyan-500 focus:ring-4 focus:ring-cyan-100"
                     >
-                      <option value="owner_draw">Owner Draw</option>
-                      <option value="operational">Pengeluaran Lain</option>
+                      <optgroup label="Uang keluar">
+                        <option value="operational">Pengeluaran Operasional</option>
+                        <option value="owner_draw">Owner Draw (tarik owner)</option>
+                      </optgroup>
+                      <optgroup label="Uang masuk / transfer">
+                        <option value="owner_capital">Talangan Owner (nombok)</option>
+                        <option value="savings_deposit">Setor Tabungan</option>
+                        <option value="savings_withdraw">Tarik Tabungan</option>
+                      </optgroup>
                     </select>
                     <Button onClick={() => void addExpense()} disabled={!expenseForm.label.trim() || !expenseForm.amount} className="h-11">
                       + Catat
                     </Button>
                   </div>
+                  <p className="mt-2 text-xs leading-5 text-slate-500">
+                    {getExpenseMeta(expenseForm.type).direction === "out"
+                      ? "Uang keluar dari dompet Putar Modal / jatah Owner."
+                      : getExpenseMeta(expenseForm.type).direction === "in"
+                      ? "Uang pribadi owner masuk ke bisnis. Dicatat sebagai Talangan (bisnis berutang ke owner)."
+                      : "Transfer internal antara Putar Modal dan Tabungan — total cash bisnis tidak berubah."}
+                  </p>
                 </div>
 
                 {/* Toggle Riwayat */}
@@ -3287,21 +3463,28 @@ export default function ThriftHatInventoryApp() {
                       <>
                         {/* Mobile cards */}
                         <div className="mt-3 grid gap-2 lg:hidden">
-                          {filteredExpenses.map((expense) => (
+                          {filteredExpenses.map((expense) => {
+                            const meta = getExpenseMeta(expense.type);
+                            const styleByDir = {
+                              out: { box: "bg-red-50 text-red-600", amount: "text-red-600", sign: "-" },
+                              in: { box: "bg-emerald-50 text-emerald-600", amount: "text-emerald-600", sign: "+" },
+                              save: { box: "bg-cyan-50 text-cyan-600", amount: "text-cyan-600", sign: "" },
+                            }[meta.direction];
+                            return (
                             <div key={expense.id} className="flex items-center justify-between gap-3 rounded-xl border border-slate-200 bg-white p-3">
                               <div className="flex items-center gap-3">
-                                <div className={`grid h-9 w-9 shrink-0 place-items-center rounded-lg ${expense.type === "owner_draw" ? "bg-emerald-50 text-emerald-600" : "bg-amber-50 text-amber-600"}`}>
-                                  {expense.type === "owner_draw" ? <Wallet size={16} /> : <ArrowDownCircle size={16} />}
+                                <div className={`grid h-9 w-9 shrink-0 place-items-center rounded-lg ${styleByDir.box}`}>
+                                  {meta.direction === "out" ? <ArrowDownCircle size={16} /> : meta.direction === "in" ? <ArrowUpCircle size={16} /> : <PiggyBank size={16} />}
                                 </div>
                                 <div>
                                   <p className="text-sm font-bold text-slate-950">{expense.label}</p>
                                   <p className="text-xs font-medium text-slate-400">
-                                    {expense.type === "owner_draw" ? "Owner Draw" : "Pengeluaran Lain"} • {formatDisplayDate(expense.date)}
+                                    {meta.short} • {formatDisplayDate(expense.date)}
                                   </p>
                                 </div>
                               </div>
                               <div className="flex items-center gap-2">
-                                <p className="text-sm font-black text-red-600">-{formatRupiah(expense.amount)}</p>
+                                <p className={`text-sm font-black ${styleByDir.amount}`}>{styleByDir.sign}{formatRupiah(expense.amount)}</p>
                                 <button
                                   type="button"
                                   onClick={() => void deleteExpense(expense.id)}
@@ -3313,7 +3496,8 @@ export default function ThriftHatInventoryApp() {
                                 </button>
                               </div>
                             </div>
-                          ))}
+                            );
+                          })}
                         </div>
 
                         {/* Desktop table */}
@@ -3329,16 +3513,29 @@ export default function ThriftHatInventoryApp() {
                               </tr>
                             </thead>
                             <tbody className="divide-y divide-slate-100 bg-white">
-                              {filteredExpenses.map((expense) => (
+                              {filteredExpenses.map((expense) => {
+                                const meta = getExpenseMeta(expense.type);
+                                const badge = {
+                                  out: "bg-red-50 text-red-700",
+                                  in: "bg-emerald-50 text-emerald-700",
+                                  save: "bg-cyan-50 text-cyan-700",
+                                }[meta.direction];
+                                const amountTone = {
+                                  out: "text-red-600",
+                                  in: "text-emerald-600",
+                                  save: "text-cyan-600",
+                                }[meta.direction];
+                                const sign = meta.direction === "out" ? "-" : meta.direction === "in" ? "+" : "";
+                                return (
                                 <tr key={expense.id}>
                                   <td className="px-4 py-3 font-medium text-slate-600">{formatDisplayDate(expense.date)}</td>
                                   <td className="px-4 py-3 font-bold text-slate-950">{expense.label}</td>
                                   <td className="px-4 py-3">
-                                    <span className={`rounded-full px-3 py-1 text-xs font-black ${expense.type === "owner_draw" ? "bg-emerald-50 text-emerald-700" : "bg-amber-50 text-amber-700"}`}>
-                                      {expense.type === "owner_draw" ? "Owner Draw" : "Operasional"}
+                                    <span className={`rounded-full px-3 py-1 text-xs font-black ${badge}`}>
+                                      {meta.short}
                                     </span>
                                   </td>
-                                  <td className="px-4 py-3 text-right font-black text-red-600">-{formatRupiah(expense.amount)}</td>
+                                  <td className={`px-4 py-3 text-right font-black ${amountTone}`}>{sign}{formatRupiah(expense.amount)}</td>
                                   <td className="px-4 py-3">
                                     <button
                                       type="button"
@@ -3351,7 +3548,8 @@ export default function ThriftHatInventoryApp() {
                                     </button>
                                   </td>
                                 </tr>
-                              ))}
+                                );
+                              })}
                             </tbody>
                             <tfoot className="bg-slate-50">
                               <tr>
@@ -3374,21 +3572,21 @@ export default function ThriftHatInventoryApp() {
                 )}
               </div>
 
-              {/* Budget Restock */}
+              {/* Budget Restock = Dompet Putar Modal */}
               <div className="mt-5">
                 <div className="mb-3 flex items-center gap-2">
-                  <h3 className="text-sm font-black uppercase tracking-wide text-slate-500">Budget Restock</h3>
-                  <FormulaTooltip formula={`Budget = Modal Terjual + (Profit Bersih × ${financeConfig.persenPutarModal}%). Sisa = Budget − Restock setelah jualan pertama.`} />
+                  <h3 className="text-sm font-black uppercase tracking-wide text-slate-500">Dana Restock (Putar Modal)</h3>
+                  <FormulaTooltip formula={`Saldo dompet Putar Modal = modal terjual balik + ${financeConfig.persenPutarModal}% profit bersih + talangan/tarik tabungan − restock − operasional − tarikan owner yang membebani dompet ini − setor tabungan.`} />
                 </div>
                 <div className={`rounded-xl border-2 p-5 ${stats.sisaBudgetRestock >= 0 ? "border-cyan-200 bg-gradient-to-br from-cyan-50 to-white" : "border-red-200 bg-gradient-to-br from-red-50 to-white"}`}>
                   <div className="flex items-center justify-between gap-4">
                     <div>
-                      <p className="text-xs font-bold uppercase text-slate-400">Sisa Budget Restock</p>
+                      <p className="text-xs font-bold uppercase text-slate-400">Sisa Dana Restock</p>
                       <p className={`mt-2 text-3xl font-black ${stats.sisaBudgetRestock >= 0 ? "text-cyan-700" : "text-red-700"}`}>
                         {formatRupiah(stats.sisaBudgetRestock)}
                       </p>
                       <p className={`mt-1 text-xs font-medium ${stats.sisaBudgetRestock >= 0 ? "text-cyan-600" : "text-red-600"}`}>
-                        {stats.sisaBudgetRestock >= 0 ? "Masih bisa belanja barang baru" : "Kelebihan pakai uang sendiri!"}
+                        {stats.sisaBudgetRestock >= 0 ? "Masih bisa belanja barang baru" : "Dana restock minus — sudah kepakai buat tarikan/operasional"}
                       </p>
                     </div>
                     <div className={`grid h-14 w-14 shrink-0 place-items-center rounded-xl ${stats.sisaBudgetRestock >= 0 ? "bg-cyan-100 text-cyan-700" : "bg-red-100 text-red-700"}`}>
@@ -3398,26 +3596,56 @@ export default function ThriftHatInventoryApp() {
 
                   <div className="mt-4 grid gap-2 rounded-lg border border-slate-200 bg-white p-3">
                     <div className="flex items-center justify-between gap-3 text-sm">
-                      <span className="font-medium text-slate-500">Modal barang terjual</span>
+                      <span className="font-medium text-slate-500">Modal barang terjual (balik modal)</span>
                       <span className="font-bold text-slate-950">{formatRupiah(stats.costSold)}</span>
                     </div>
                     <div className="flex items-center justify-between gap-3 text-sm">
                       <span className="font-medium text-slate-500">+ {financeConfig.persenPutarModal}% profit (putar modal)</span>
                       <span className="font-bold text-slate-950">{formatRupiah(stats.alokasiBeliBaru)}</span>
                     </div>
-                    <div className="border-t border-slate-100 pt-2">
+                    {stats.totalCapitalInjection > 0 && (
                       <div className="flex items-center justify-between gap-3 text-sm">
-                        <span className="font-bold text-slate-700">= Total budget restock</span>
-                        <span className="font-black text-slate-950">{formatRupiah(stats.budgetRestock)}</span>
+                        <span className="font-medium text-emerald-600">+ Talangan owner</span>
+                        <span className="font-bold text-emerald-700">+{formatRupiah(stats.totalCapitalInjection)}</span>
                       </div>
-                    </div>
+                    )}
+                    {stats.totalSavingsWithdraw > 0 && (
+                      <div className="flex items-center justify-between gap-3 text-sm">
+                        <span className="font-medium text-cyan-600">+ Tarik tabungan</span>
+                        <span className="font-bold text-cyan-700">+{formatRupiah(stats.totalSavingsWithdraw)}</span>
+                      </div>
+                    )}
                     <div className="flex items-center justify-between gap-3 text-sm">
                       <span className="font-medium text-red-500">− Sudah di-restock (setelah jualan pertama)</span>
                       <span className="font-bold text-red-600">-{formatRupiah(stats.sudahDiRestock)}</span>
                     </div>
+                    {stats.totalOperational > 0 && (
+                      <div className="flex items-center justify-between gap-3 text-sm">
+                        <span className="font-medium text-red-500">− Pengeluaran operasional manual</span>
+                        <span className="font-bold text-red-600">-{formatRupiah(stats.totalOperational)}</span>
+                      </div>
+                    )}
+                    {stats.ownerDrawDariPutar > 0 && (
+                      <div className="flex items-center justify-between gap-3 text-sm">
+                        <span className="font-medium text-red-500">− Tarikan owner yang membebani dana ini</span>
+                        <span className="font-bold text-red-600">-{formatRupiah(stats.ownerDrawDariPutar)}</span>
+                      </div>
+                    )}
+                    {stats.totalSavingsDeposit > 0 && (
+                      <div className="flex items-center justify-between gap-3 text-sm">
+                        <span className="font-medium text-red-500">− Setor ke tabungan</span>
+                        <span className="font-bold text-red-600">-{formatRupiah(stats.totalSavingsDeposit)}</span>
+                      </div>
+                    )}
+                    {stats.ditutupDariTabungan > 0 && (
+                      <div className="flex items-center justify-between gap-3 text-sm">
+                        <span className="font-medium text-amber-600">+ Ditutup dari tabungan (dana kurang)</span>
+                        <span className="font-bold text-amber-700">+{formatRupiah(stats.ditutupDariTabungan)}</span>
+                      </div>
+                    )}
                     <div className="border-t border-slate-100 pt-2">
                       <div className="flex items-center justify-between gap-3 text-sm">
-                        <span className="font-black text-slate-700">= Sisa budget</span>
+                        <span className="font-black text-slate-700">= Sisa dana restock</span>
                         <span className={`font-black ${stats.sisaBudgetRestock >= 0 ? "text-cyan-700" : "text-red-700"}`}>{formatRupiah(stats.sisaBudgetRestock)}</span>
                       </div>
                     </div>

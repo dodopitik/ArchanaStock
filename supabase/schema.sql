@@ -64,12 +64,18 @@ create table if not exists public.expenses (
   user_id uuid not null references auth.users(id) on delete cascade,
   label text not null,
   amount integer not null default 0,
-  type text not null default 'operational' check (type in ('owner_draw', 'operational')),
+  type text not null default 'operational' check (type in ('owner_draw', 'operational', 'owner_capital', 'savings_deposit', 'savings_withdraw')),
   expense_date date not null default current_date,
   created_at timestamptz not null default now()
 );
 
 alter table public.expenses enable row level security;
+
+-- Migrasi: perluas jenis transaksi (talangan owner + tabungan) untuk tabel yang sudah ada.
+alter table public.expenses drop constraint if exists expenses_type_check;
+alter table public.expenses
+  add constraint expenses_type_check
+  check (type in ('owner_draw', 'operational', 'owner_capital', 'savings_deposit', 'savings_withdraw'));
 
 drop policy if exists "Users can view own expenses" on public.expenses;
 create policy "Users can view own expenses"
