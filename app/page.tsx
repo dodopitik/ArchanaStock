@@ -235,18 +235,12 @@ const DEFAULT_FINANCE_CONFIG: FinanceConfig = {
   persenTabungan: 10,
 };
 
-const FINANCE_CONFIG_KEY_PREFIX = "archana-caps-finance-config-history";
+const FINANCE_CONFIG_KEY = "archana-caps-finance-config-history";
 
-function getFinanceConfigKey(userEmail: string | null): string {
-  // Namespace per user supaya config tidak bocor antar akun di browser yang sama
-  const suffix = userEmail ? `-${userEmail}` : "";
-  return `${FINANCE_CONFIG_KEY_PREFIX}${suffix}`;
-}
-
-function loadFinanceConfigHistory(userEmail: string | null): FinanceConfigEntry[] {
+function loadFinanceConfigHistory(): FinanceConfigEntry[] {
   if (typeof window === "undefined") return [];
   try {
-    const stored = window.localStorage.getItem(getFinanceConfigKey(userEmail));
+    const stored = window.localStorage.getItem(FINANCE_CONFIG_KEY);
     if (!stored) return [];
     const parsed = JSON.parse(stored);
     return Array.isArray(parsed) ? parsed : [];
@@ -255,8 +249,8 @@ function loadFinanceConfigHistory(userEmail: string | null): FinanceConfigEntry[
   }
 }
 
-function saveFinanceConfigHistory(history: FinanceConfigEntry[], userEmail: string | null) {
-  window.localStorage.setItem(getFinanceConfigKey(userEmail), JSON.stringify(history));
+function saveFinanceConfigHistory(history: FinanceConfigEntry[]) {
+  window.localStorage.setItem(FINANCE_CONFIG_KEY, JSON.stringify(history));
 }
 
 /** Get the config that was active on a given date */
@@ -910,9 +904,9 @@ export default function ThriftHatInventoryApp() {
     return () => window.removeEventListener("scroll", handleScroll);
   }, []);
 
-  // Load finance config from localStorage (per-user)
+  // Load finance config from localStorage
   useEffect(() => {
-    const history = loadFinanceConfigHistory(currentUser);
+    const history = loadFinanceConfigHistory();
     setConfigHistory(history);
     const cfg = getCurrentConfig(history);
     setFinanceConfig(cfg);
@@ -922,7 +916,7 @@ export default function ThriftHatInventoryApp() {
       owner: String(cfg.persenOwner),
       tabungan: String(cfg.persenTabungan),
     });
-  }, [currentUser]);
+  }, []);
 
   const stats = useMemo(() => {
     const available = hats.filter((hat) => hat.status === "AVAILABLE");
@@ -1507,7 +1501,7 @@ export default function ThriftHatInventoryApp() {
 
     const updatedHistory = [...configHistory, newEntry];
     setConfigHistory(updatedHistory);
-    saveFinanceConfigHistory(updatedHistory, currentUser);
+    saveFinanceConfigHistory(updatedHistory);
     setFinanceConfig(newConfig);
     setDbMessage(`Pengaturan keuangan disimpan. Berlaku mulai hari ini (${formatDisplayDate(newEntry.berlakuMulai)}). Transaksi sebelumnya tidak terpengaruh.`);
   }
@@ -1527,7 +1521,7 @@ export default function ThriftHatInventoryApp() {
     };
     const updatedHistory = [...configHistory, newEntry];
     setConfigHistory(updatedHistory);
-    saveFinanceConfigHistory(updatedHistory, currentUser);
+    saveFinanceConfigHistory(updatedHistory);
     setDbMessage("Pengaturan keuangan direset ke default. Berlaku mulai hari ini.");
   }
 
