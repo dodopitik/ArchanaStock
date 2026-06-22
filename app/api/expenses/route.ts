@@ -62,7 +62,7 @@ export async function POST(request: Request) {
   const amount = Number(body.amount || 0);
   const allowedTypes = ["owner_draw", "operational", "owner_capital", "savings_deposit", "savings_withdraw"];
   const type = allowedTypes.includes(body.type) ? body.type : "operational";
-  const expenseDate = String(body.expense_date || new Date().toISOString().slice(0, 10));
+  const expenseDate = String(body.expense_date || new Date().toLocaleDateString("sv-SE"));
 
   if (!label) return jsonError("Keterangan pengeluaran wajib diisi.");
   if (!amount || amount <= 0) return jsonError("Jumlah pengeluaran harus lebih dari 0.");

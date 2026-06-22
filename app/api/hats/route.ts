@@ -86,7 +86,7 @@ export async function POST(request: Request) {
     status: row.status === "SOLD" ? "SOLD" : "AVAILABLE",
     sold_price: row.sold_price ? Number(row.sold_price) : null,
     platform: row.platform ? String(row.platform) : "",
-    bought_at: String(row.bought_at || new Date().toISOString().slice(0, 10)),
+    bought_at: String(row.bought_at || new Date().toLocaleDateString("sv-SE")),
     sold_at: row.sold_at ? String(row.sold_at) : null,
     image_url: row.image_url ? String(row.image_url) : null,
   }));

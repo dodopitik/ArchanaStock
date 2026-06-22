@@ -1652,7 +1652,7 @@ export default function ThriftHatInventoryApp() {
       status: "AVAILABLE",
       soldPrice: null,
       platform: "",
-      boughtAt: new Date().toISOString().slice(0, 10),
+      boughtAt: toDateInputValue(new Date()),
       soldAt: null,
       image,
     };
@@ -1898,7 +1898,7 @@ export default function ThriftHatInventoryApp() {
       status: "SOLD" as HatStatus,
       sold_price: Number(soldPrice),
       platform,
-      sold_at: new Date().toISOString().slice(0, 10),
+      sold_at: toDateInputValue(new Date()),
     };
 
     if (supabase) {
