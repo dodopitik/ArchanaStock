@@ -107,11 +107,22 @@ export async function PATCH(request: Request) {
 
   const body = await request.json();
   const id = String(body.id || "");
-  const updates = body.updates || {};
+  const rawUpdates = body.updates || {};
   if (!id) return jsonError("ID topi wajib dikirim.");
-  if (isReportCorrection(updates) && !isOwner(requester)) {
+  if (isReportCorrection(rawUpdates) && !isOwner(requester)) {
     return jsonError("Hanya Owner yang bisa mengubah atau menghapus laporan SOLD.", 403);
   }
+
+  // Whitelist: hanya field yang boleh di-update dari client.
+  const allowedFields = ["name", "cost_price", "status", "sold_price", "platform", "sold_at", "image_url"];
+  const updates: Record<string, unknown> = {};
+  for (const key of allowedFields) {
+    if (key in rawUpdates) {
+      updates[key] = rawUpdates[key];
+    }
+  }
+
+  if (Object.keys(updates).length === 0) return jsonError("Tidak ada field valid untuk di-update.");
 
   const { data, error } = await adminClient
     .from("hats")
