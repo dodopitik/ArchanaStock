@@ -54,12 +54,14 @@ type Hat = {
   code: string;
   name: string;
   costPrice: number;
+  stockQuantity: number;
   status: HatStatus;
   soldPrice: number | null;
   platform: string;
   boughtAt: string;
   soldAt: string | null;
   image: string | null;
+  inventoryHatId: string | null;
 };
 
 type DbHat = {
@@ -67,12 +69,14 @@ type DbHat = {
   code: string;
   name: string;
   cost_price: number;
+  stock_quantity?: number | null;
   status: HatStatus;
   sold_price: number | null;
   platform: string | null;
   bought_at: string;
   sold_at: string | null;
   image_url: string | null;
+  inventory_hat_id?: string | null;
 };
 
 type ManagedUser = {
@@ -98,6 +102,7 @@ type ApiManagedUser = {
 type FormState = {
   name: string;
   costPrice: string;
+  stockQuantity: string;
   image: string;
 };
 
@@ -158,6 +163,7 @@ function getExpenseMeta(type: ExpenseType) {
 type BulkItem = {
   name: string;
   costPrice: number;
+  stockQuantity: number;
 };
 
 type ImageTarget = "add" | "edit";
@@ -194,6 +200,7 @@ const initialUsers: ManagedUser[] = [];
 const emptyForm: FormState = {
   name: "",
   costPrice: "",
+  stockQuantity: "",
   image: "",
 };
 
@@ -288,12 +295,14 @@ function mapDbHat(row: DbHat): Hat {
     code: row.code,
     name: row.name,
     costPrice: row.cost_price,
+    stockQuantity: row.stock_quantity ?? 0,
     status: row.status,
     soldPrice: row.sold_price,
     platform: row.platform || "",
     boughtAt: row.bought_at,
     soldAt: row.sold_at,
     image: row.image_url,
+    inventoryHatId: row.inventory_hat_id || null,
   };
 }
 
@@ -360,7 +369,7 @@ function parseBulkItems(value: string): BulkItem[] {
       const costPrice = Number(match[2].replace(/[^0-9]/g, ""));
       if (!name || !costPrice) return null;
 
-      return { name, costPrice };
+      return { name, costPrice, stockQuantity: 1 };
     })
     .filter((item): item is BulkItem => Boolean(item));
 }
@@ -837,6 +846,7 @@ export default function ThriftHatInventoryApp() {
   const [hats, setHats] = useState<Hat[]>(initialHats);
   const [users, setUsers] = useState<ManagedUser[]>(initialUsers);
   const [query, setQuery] = useState("");
+  const [reportQuery, setReportQuery] = useState("");
   const [soldModal, setSoldModal] = useState<Hat | null>(null);
   const [editModal, setEditModal] = useState<Hat | null>(null);
   const [reportEditModal, setReportEditModal] = useState<Hat | null>(null);
@@ -924,7 +934,8 @@ export default function ThriftHatInventoryApp() {
     const revenue = sold.reduce((sum, hat) => sum + (hat.soldPrice || 0), 0);
     const costSold = sold.reduce((sum, hat) => sum + hat.costPrice, 0);
     const profit = revenue - costSold;
-    const stockValue = available.reduce((sum, hat) => sum + hat.costPrice, 0);
+    const availableCount = available.reduce((sum, hat) => sum + hat.stockQuantity, 0);
+    const stockValue = available.reduce((sum, hat) => sum + hat.costPrice * hat.stockQuantity, 0);
 
     // Profit bersih: setiap item sold dihitung pakai config yang berlaku saat item itu terjual
     const biayaOperasional = sold.reduce((sum, hat) => {
@@ -1046,7 +1057,7 @@ export default function ThriftHatInventoryApp() {
     const adaPotensiDobelOngkos = financeConfig.biayaOperasionalPerItem > 0 && totalOperational > 0;
 
     return {
-      available: available.length, sold: sold.length, revenue, profit, profitBersih, biayaOperasional,
+      available: availableCount, sold: sold.length, revenue, profit, profitBersih, biayaOperasional,
       stockValue, costSold, alokasiBeliBaru, alokasiOwner, alokasiTabungan,
       budgetRestock, sudahDiRestock, sisaBudgetRestock, kelebihanTarik, modalAwal,
       totalOwnerDraw, totalOperational, totalCapitalInjection, totalSavingsDeposit, totalSavingsWithdraw,
@@ -1056,7 +1067,7 @@ export default function ThriftHatInventoryApp() {
   }, [hats, expenses, financeConfig, configHistory]);
 
   const availableHats = hats
-    .filter((hat) => hat.status === "AVAILABLE")
+    .filter((hat) => hat.status === "AVAILABLE" && hat.stockQuantity > 0)
     .filter((hat) => `${hat.code} ${hat.name}`.toLowerCase().includes(query.toLowerCase()));
 
   const soldHats = useMemo(
@@ -1070,10 +1081,12 @@ export default function ThriftHatInventoryApp() {
   const filteredReportHats = useMemo(
     () =>
       soldHats.filter((hat) => {
-        if (activeReportRange.isAll) return true;
-        return Boolean(hat.soldAt && hat.soldAt >= activeReportRange.start && hat.soldAt <= activeReportRange.end);
+        const isInPeriod = activeReportRange.isAll || Boolean(hat.soldAt && hat.soldAt >= activeReportRange.start && hat.soldAt <= activeReportRange.end);
+        const normalizedQuery = reportQuery.trim().toLowerCase();
+        const matchesQuery = !normalizedQuery || `${hat.code} ${hat.name} ${hat.platform}`.toLowerCase().includes(normalizedQuery);
+        return isInPeriod && matchesQuery;
       }),
-    [activeReportRange, soldHats]
+    [activeReportRange, reportQuery, soldHats]
   );
   const bulkItems = useMemo(() => parseBulkItems(bulkText), [bulkText]);
 
@@ -1106,7 +1119,8 @@ export default function ThriftHatInventoryApp() {
     filtered.forEach((hat) => {
       const date = hat.boughtAt;
       const current = grouped.get(date) || { total: 0, count: 0 };
-      grouped.set(date, { total: current.total + hat.costPrice, count: current.count + 1 });
+      const quantity = hat.status === "AVAILABLE" ? hat.stockQuantity : 1;
+      grouped.set(date, { total: current.total + hat.costPrice * quantity, count: current.count + quantity });
     });
     return Array.from(grouped.entries())
       .sort(([a], [b]) => b.localeCompare(a))
@@ -1649,12 +1663,14 @@ export default function ThriftHatInventoryApp() {
       code: `HT${String(hats.length + index + 1).padStart(4, "0")}`,
       name: item.name,
       costPrice: item.costPrice,
+      stockQuantity: item.stockQuantity,
       status: "AVAILABLE",
       soldPrice: null,
       platform: "",
       boughtAt: toDateInputValue(new Date()),
       soldAt: null,
       image,
+      inventoryHatId: null,
     };
   }
 
@@ -1673,6 +1689,7 @@ export default function ThriftHatInventoryApp() {
         code: hat.code,
         name: hat.name,
         cost_price: hat.costPrice,
+        stock_quantity: hat.stockQuantity,
         status: hat.status,
         sold_price: hat.soldPrice,
         platform: hat.platform,
@@ -1714,6 +1731,7 @@ export default function ThriftHatInventoryApp() {
         {
           name: form.name.trim(),
           costPrice: Number(form.costPrice),
+          stockQuantity: form.stockQuantity ? Number(form.stockQuantity) : 1,
         },
       ],
       form.image.trim() || null
@@ -1743,7 +1761,7 @@ export default function ThriftHatInventoryApp() {
       return;
     }
 
-    const receiptNumber = `INV-${hat.code}-${hat.soldAt.replaceAll("-", "")}`;
+    const receiptNumber = `INV-${hat.code}-${hat.soldAt.replaceAll("-", "")}-${hat.id.slice(0, 8).toUpperCase()}`;
     const logoUrl = `${window.location.origin}${logoSrc}`;
     const receiptWindow = window.open("", "_blank", "width=420,height=720");
 
@@ -1891,14 +1909,25 @@ export default function ThriftHatInventoryApp() {
   }
 
   async function markAsSold(shouldPrintReceipt = false) {
-    if (!soldModal || !soldPrice) return;
+    if (!soldModal || !soldPrice || soldModal.stockQuantity < 1) return;
     setSavingAction(shouldPrintReceipt ? "sold-print" : "sold");
 
-    const updates = {
-      status: "SOLD" as HatStatus,
+    const saleDetails = {
       sold_price: Number(soldPrice),
       platform,
       sold_at: toDateInputValue(new Date()),
+    };
+
+    let inventoryHat: Hat = { ...soldModal, stockQuantity: soldModal.stockQuantity - 1 };
+    let soldHat: Hat = {
+      ...soldModal,
+      id: makeLocalId(),
+      stockQuantity: 0,
+      status: "SOLD",
+      soldPrice: saleDetails.sold_price,
+      platform: saleDetails.platform,
+      soldAt: saleDetails.sold_at,
+      inventoryHatId: soldModal.id,
     };
 
     if (supabase) {
@@ -1915,7 +1944,7 @@ export default function ThriftHatInventoryApp() {
           "Content-Type": "application/json",
           Authorization: `Bearer ${token}`,
         },
-        body: JSON.stringify({ id: soldModal.id, updates }),
+        body: JSON.stringify({ id: soldModal.id, action: "SELL", sale: saleDetails }),
       });
       const result = await response.json();
 
@@ -1925,18 +1954,14 @@ export default function ThriftHatInventoryApp() {
         return;
       }
 
-      setDbMessage("Status sold tersimpan ke Supabase.");
+      inventoryHat = mapDbHat(result.inventoryHat as DbHat);
+      soldHat = mapDbHat(result.sale as DbHat);
+      setDbMessage(`Penjualan tersimpan. Sisa stok ${inventoryHat.stockQuantity}.`);
+    } else {
+      setDbMessage(`Penjualan tersimpan. Sisa stok ${inventoryHat.stockQuantity}.`);
     }
 
-    const soldHat: Hat = {
-      ...soldModal,
-      status: "SOLD",
-      soldPrice: updates.sold_price,
-      platform: updates.platform,
-      soldAt: updates.sold_at,
-    };
-
-    setHats((current) => current.map((hat) => (hat.id === soldModal.id ? soldHat : hat)));
+    setHats((current) => [soldHat, ...current.map((hat) => (hat.id === soldModal.id ? inventoryHat : hat))]);
     setSoldModal(null);
     setSoldPrice("");
     setPlatform("Shopee");
@@ -1988,6 +2013,7 @@ export default function ThriftHatInventoryApp() {
     setEditForm({
       name: hat.name,
       costPrice: String(hat.costPrice),
+      stockQuantity: String(hat.stockQuantity),
       image: hat.image || "",
     });
   }
@@ -2000,6 +2026,7 @@ export default function ThriftHatInventoryApp() {
     const updates = {
       name: editForm.name.trim(),
       cost_price: Number(editForm.costPrice),
+      stock_quantity: editForm.stockQuantity ? Number(editForm.stockQuantity) : 1,
       image_url: editForm.image.trim() || null,
     };
 
@@ -2032,6 +2059,7 @@ export default function ThriftHatInventoryApp() {
       ...editModal,
       name: updates.name,
       costPrice: updates.cost_price,
+      stockQuantity: updates.stock_quantity,
       image: updates.image_url,
     };
 
@@ -2120,17 +2148,13 @@ export default function ThriftHatInventoryApp() {
       return;
     }
 
-    const confirmed = window.confirm(`Batalkan SOLD ${hat.code} - ${hat.name}? Item akan kembali ke stok available dan hilang dari laporan.`);
+    const confirmed = window.confirm(`Retur ${hat.code} - ${hat.name}? Stok barang akan bertambah 1 dan transaksi ini dihapus dari laporan.`);
     if (!confirmed) return;
 
     setSavingAction("report-cancel");
 
-    const updates = {
-      status: "AVAILABLE" as HatStatus,
-      sold_price: null,
-      platform: "",
-      sold_at: null,
-    };
+    let restoredInventory: Hat | null = null;
+    let removedSaleId: string | null = hat.inventoryHatId ? hat.id : null;
 
     if (supabase && !hat.id.startsWith("demo-") && !hat.id.startsWith("local-")) {
       const token = await getAccessToken(supabase);
@@ -2146,7 +2170,7 @@ export default function ThriftHatInventoryApp() {
           "Content-Type": "application/json",
           Authorization: `Bearer ${token}`,
         },
-        body: JSON.stringify({ id: hat.id, updates, requireOwner: true }),
+        body: JSON.stringify({ id: hat.id, action: "RETURN" }),
       });
       const result = await response.json();
 
@@ -2155,22 +2179,38 @@ export default function ThriftHatInventoryApp() {
         setSavingAction(null);
         return;
       }
+
+      restoredInventory = mapDbHat(result.inventoryHat as DbHat);
+      removedSaleId = result.removedSaleId ? String(result.removedSaleId) : null;
+    } else if (hat.inventoryHatId) {
+      const source = hats.find((item) => item.id === hat.inventoryHatId && item.status === "AVAILABLE");
+      if (!source) {
+        setDbMessage("Barang asal transaksi tidak ditemukan.");
+        setSavingAction(null);
+        return;
+      }
+      restoredInventory = { ...source, stockQuantity: source.stockQuantity + 1 };
+    } else {
+      restoredInventory = {
+        ...hat,
+        status: "AVAILABLE",
+        stockQuantity: Math.max(0, hat.stockQuantity) + 1,
+        soldPrice: null,
+        platform: "",
+        soldAt: null,
+      };
     }
 
-    setHats((current) =>
-      current.map((item) =>
-        item.id === hat.id
-          ? {
-              ...item,
-              status: "AVAILABLE",
-              soldPrice: null,
-              platform: "",
-              soldAt: null,
-            }
-          : item
-      )
-    );
-    setDbMessage(`Laporan ${hat.code} dihapus. Item kembali ke stok available.`);
+    setHats((current) => {
+      if (!restoredInventory) return current;
+      if (removedSaleId) {
+        return current
+          .filter((item) => item.id !== removedSaleId)
+          .map((item) => (item.id === restoredInventory.id ? restoredInventory : item));
+      }
+      return current.map((item) => (item.id === restoredInventory.id ? restoredInventory : item));
+    });
+    setDbMessage(`Retur ${hat.code} berhasil. Stok bertambah 1 dan transaksi dihapus dari laporan.`);
     setSavingAction(null);
   }
 
@@ -2302,8 +2342,10 @@ export default function ThriftHatInventoryApp() {
 
   function printSalesReport(period: ReportPeriod, rangeOverride?: ReportRange) {
     const range = rangeOverride || getReportRange(period, reportDate, reportMonth);
+    const normalizedQuery = reportQuery.trim().toLowerCase();
     const reportHats = soldHats
       .filter((hat) => range.isAll || Boolean(hat.soldAt && hat.soldAt >= range.start && hat.soldAt <= range.end))
+      .filter((hat) => !normalizedQuery || `${hat.code} ${hat.name} ${hat.platform}`.toLowerCase().includes(normalizedQuery))
       .sort((hatA, hatB) => `${hatB.soldAt || ""}${hatB.code}`.localeCompare(`${hatA.soldAt || ""}${hatA.code}`));
     const revenue = reportHats.reduce((sum, hat) => sum + (hat.soldPrice || 0), 0);
     const cost = reportHats.reduce((sum, hat) => sum + hat.costPrice, 0);
@@ -2777,6 +2819,10 @@ export default function ThriftHatInventoryApp() {
                   <input value={form.costPrice} onChange={(event) => updateForm("costPrice", event.target.value.replace(/[^0-9]/g, ""))} placeholder="45000" inputMode="numeric" className="h-11 rounded-lg border border-slate-200 bg-white px-3 text-sm font-medium text-slate-950 outline-none transition placeholder:text-slate-400 focus:border-cyan-500 focus:ring-4 focus:ring-cyan-100" />
                 </label>
                 <label className="grid gap-2 text-sm font-semibold text-slate-700 lg:col-span-2">
+                  <span>Jumlah stok <span className="font-medium text-slate-400">(opsional)</span></span>
+                  <input value={form.stockQuantity} onChange={(event) => updateForm("stockQuantity", event.target.value.replace(/[^0-9]/g, ""))} placeholder="1" inputMode="numeric" className="h-11 rounded-lg border border-slate-200 bg-white px-3 text-sm font-medium text-slate-950 outline-none transition placeholder:text-slate-400 focus:border-cyan-500 focus:ring-4 focus:ring-cyan-100" />
+                </label>
+                <label className="grid gap-2 text-sm font-semibold text-slate-700 lg:col-span-2">
                   URL foto opsional
                   <input value={form.image} onChange={(event) => updateForm("image", event.target.value)} placeholder="Kosongkan jika belum ada foto" className="h-11 rounded-lg border border-slate-200 bg-white px-3 text-sm font-medium text-slate-950 outline-none transition placeholder:text-slate-400 focus:border-cyan-500 focus:ring-4 focus:ring-cyan-100" />
                 </label>
@@ -2851,7 +2897,7 @@ export default function ThriftHatInventoryApp() {
                   </label>
                   <div className="flex flex-col gap-3 rounded-xl bg-slate-50 p-4 sm:flex-row sm:items-center sm:justify-between">
                     <p className="text-sm font-semibold text-slate-600">
-                      {bulkItems.length ? `${bulkItems.length} item siap disimpan` : "Belum ada baris valid"}
+                      {bulkItems.length ? `${bulkItems.length} item siap disimpan · jumlah stok default 1` : "Belum ada baris valid"}
                     </p>
                     <Button onClick={addBulkHats} disabled={!bulkItems.length || savingAction === "bulk"} className="w-full sm:w-auto">
                       <PackagePlus size={17} />
@@ -2919,6 +2965,7 @@ export default function ThriftHatInventoryApp() {
                         <div className="mt-2 flex flex-wrap gap-2 text-xs font-semibold text-slate-500">
                           <span className="rounded-full bg-slate-100 px-3 py-1">{hat.code}</span>
                           <span className="rounded-full bg-slate-100 px-3 py-1">Modal: {formatRupiah(hat.costPrice)}</span>
+                          <span className="rounded-full bg-cyan-50 px-3 py-1 text-cyan-700">Jumlah stok: {hat.stockQuantity}</span>
                         </div>
                       </div>
                       {stockView !== "list" && <StatusBadge status={hat.status} />}
@@ -4052,6 +4099,14 @@ export default function ThriftHatInventoryApp() {
                     </div>
                   )}
 
+                  <label className="grid gap-2 text-sm font-semibold text-slate-700">
+                    Cari topi terjual
+                    <div className="relative">
+                      <Search className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={17} />
+                      <input value={reportQuery} onChange={(event) => setReportQuery(event.target.value)} placeholder="Cari kode, nama topi, atau platform..." className="h-11 w-full rounded-lg border border-slate-200 bg-white py-2 pl-10 pr-3 text-sm font-medium outline-none transition placeholder:text-slate-400 focus:border-cyan-500 focus:ring-4 focus:ring-cyan-100" />
+                    </div>
+                  </label>
+
                 </div>
 
                 <div className="grid gap-3 lg:hidden">
@@ -4104,7 +4159,7 @@ export default function ThriftHatInventoryApp() {
                   ))}
                   {!filteredReportHats.length && (
                     <div className="rounded-xl border border-dashed border-slate-300 p-8 text-center text-sm font-medium text-slate-500">
-                      Belum ada item SOLD pada periode ini.
+                      {reportQuery.trim() ? "Topi terjual yang dicari tidak ditemukan pada periode ini." : "Belum ada item SOLD pada periode ini."}
                     </div>
                   )}
                 </div>
@@ -4158,7 +4213,7 @@ export default function ThriftHatInventoryApp() {
                       {!filteredReportHats.length && (
                         <tr>
                           <td colSpan={canManageReportActions ? 7 : 6} className="px-4 py-10 text-center text-sm font-medium text-slate-500">
-                            Belum ada item SOLD pada periode ini.
+                            {reportQuery.trim() ? "Topi terjual yang dicari tidak ditemukan pada periode ini." : "Belum ada item SOLD pada periode ini."}
                           </td>
                         </tr>
                       )}
@@ -4242,7 +4297,7 @@ export default function ThriftHatInventoryApp() {
               <div className="min-w-0">
                 <h3 className="text-xl font-black text-slate-950">Tandai SOLD</h3>
                 <p className="mt-1 truncate text-sm font-medium text-slate-500">{soldModal.code} - {soldModal.name}</p>
-                <p className="mt-1 text-xs font-semibold text-slate-400">Modal {formatRupiah(soldModal.costPrice)}</p>
+                <p className="mt-1 text-xs font-semibold text-slate-400">Modal {formatRupiah(soldModal.costPrice)} · Stok tersedia {soldModal.stockQuantity}</p>
               </div>
             </div>
 
@@ -4346,6 +4401,10 @@ export default function ThriftHatInventoryApp() {
               <label className="grid gap-2 text-sm font-semibold text-slate-700">
                 Harga modal
                 <input value={editForm.costPrice} onChange={(event) => updateEditForm("costPrice", event.target.value.replace(/[^0-9]/g, ""))} inputMode="numeric" className="h-11 rounded-lg border border-slate-200 bg-white px-3 text-sm font-medium text-slate-950 outline-none transition placeholder:text-slate-400 focus:border-cyan-500 focus:ring-4 focus:ring-cyan-100" />
+              </label>
+              <label className="grid gap-2 text-sm font-semibold text-slate-700">
+                <span>Jumlah stok <span className="font-medium text-slate-400">(opsional)</span></span>
+                <input value={editForm.stockQuantity} onChange={(event) => updateEditForm("stockQuantity", event.target.value.replace(/[^0-9]/g, ""))} placeholder="1" inputMode="numeric" className="h-11 rounded-lg border border-slate-200 bg-white px-3 text-sm font-medium text-slate-950 outline-none transition placeholder:text-slate-400 focus:border-cyan-500 focus:ring-4 focus:ring-cyan-100" />
               </label>
               <label className="grid gap-2 text-sm font-semibold text-slate-700">
                 URL foto opsional

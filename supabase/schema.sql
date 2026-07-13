@@ -6,17 +6,27 @@ create table if not exists public.hats (
   code text not null,
   name text not null,
   cost_price integer not null default 0,
+  stock_quantity integer not null default 1 check (stock_quantity >= 0),
   status text not null default 'AVAILABLE' check (status in ('AVAILABLE', 'SOLD')),
   sold_price integer,
   platform text,
   bought_at date not null default current_date,
   sold_at date,
   image_url text,
+  inventory_hat_id uuid references public.hats(id) on delete set null,
   created_at timestamptz not null default now()
 );
 
 alter table public.hats drop column if exists brand;
 alter table public.hats drop column if exists condition;
+
+-- Migrasi: jumlah stok bersifat opsional di UI dan bernilai 1 jika tidak diisi.
+alter table public.hats add column if not exists stock_quantity integer not null default 1;
+alter table public.hats alter column stock_quantity set default 1;
+alter table public.hats add column if not exists inventory_hat_id uuid references public.hats(id) on delete set null;
+alter table public.hats drop constraint if exists hats_stock_quantity_check;
+alter table public.hats
+  add constraint hats_stock_quantity_check check (stock_quantity >= 0);
 
 alter table public.hats enable row level security;
 
