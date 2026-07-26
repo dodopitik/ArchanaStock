@@ -494,7 +494,7 @@ function getAuthErrorMessage(message: string) {
 }
 
 function resizeImageFile(file: File) {
-  return new Promise<string>((resolve, reject) => {
+  return new Promise<Blob>((resolve, reject) => {
     const reader = new FileReader();
 
     reader.onload = () => {
@@ -516,7 +516,11 @@ function resizeImageFile(file: File) {
         canvas.width = width;
         canvas.height = height;
         context.drawImage(image, 0, 0, width, height);
-        resolve(canvas.toDataURL("image/jpeg", 0.82));
+        canvas.toBlob(
+          (blob) => (blob ? resolve(blob) : reject(new Error("Gagal memproses gambar."))),
+          "image/webp",
+          0.82,
+        );
       };
 
       image.onerror = () => reject(new Error("File gambar tidak bisa dibaca."));
@@ -892,6 +896,7 @@ export default function ThriftHatInventoryApp() {
   const [cameraError, setCameraError] = useState("");
   const [cameraReady, setCameraReady] = useState(false);
   const [imageTarget, setImageTarget] = useState<ImageTarget>("add");
+  const [uploadingImage, setUploadingImage] = useState(false);
   const galleryInputRef = useRef<HTMLInputElement>(null);
   const cameraInputRef = useRef<HTMLInputElement>(null);
   const editGalleryInputRef = useRef<HTMLInputElement>(null);
@@ -1548,6 +1553,29 @@ export default function ThriftHatInventoryApp() {
     updateForm("image", value);
   }
 
+  async function uploadImageBlob(blob: Blob): Promise<string> {
+    if (!supabase) throw new Error("Supabase belum dikonfigurasi.");
+    const token = await getAccessToken(supabase);
+    if (!token) throw new Error("Login dulu sebelum upload foto.");
+
+    const formData = new FormData();
+    formData.append("file", blob, "image.webp");
+
+    const response = await fetch("/api/hats/image", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}` },
+      body: formData,
+    });
+
+    if (!response.ok) {
+      const result = await response.json();
+      throw new Error(result.error || "Gagal upload foto.");
+    }
+
+    const { url } = await response.json();
+    return url;
+  }
+
   async function handleImageFile(file: File | undefined, target: ImageTarget = imageTarget) {
     if (!file) return;
 
@@ -1556,16 +1584,20 @@ export default function ThriftHatInventoryApp() {
       return;
     }
 
+    setUploadingImage(true);
     try {
-      const image = await resizeImageFile(file);
+      const blob = await resizeImageFile(file);
+      const url = await uploadImageBlob(blob);
       if (target === "edit") {
-        updateEditForm("image", image);
+        updateEditForm("image", url);
       } else {
-        updateForm("image", image);
+        updateForm("image", url);
       }
-      setDbMessage("Foto siap disimpan bersama item.");
+      setDbMessage("Foto berhasil diupload.");
     } catch (error) {
-      setDbMessage(error instanceof Error ? error.message : "Gagal memproses foto.");
+      setDbMessage(error instanceof Error ? error.message : "Gagal upload foto.");
+    } finally {
+      setUploadingImage(false);
     }
   }
 
@@ -1631,7 +1663,7 @@ export default function ThriftHatInventoryApp() {
     }
   }
 
-  function captureRealtimePhoto() {
+  async function captureRealtimePhoto() {
     const video = liveVideoRef.current;
 
     if (!video || !video.videoWidth || !video.videoHeight) {
@@ -1652,9 +1684,25 @@ export default function ThriftHatInventoryApp() {
     }
 
     context.drawImage(video, 0, 0, canvas.width, canvas.height);
-    setTargetImage(canvas.toDataURL("image/jpeg", 0.82));
-    setDbMessage("Foto realtime siap disimpan bersama item.");
     closeRealtimeCamera();
+
+    setUploadingImage(true);
+    try {
+      const blob = await new Promise<Blob>((resolve, reject) => {
+        canvas.toBlob(
+          (b) => (b ? resolve(b) : reject(new Error("Gagal memproses foto."))),
+          "image/webp",
+          0.82,
+        );
+      });
+      const url = await uploadImageBlob(blob);
+      setTargetImage(url);
+      setDbMessage("Foto berhasil diupload.");
+    } catch (error) {
+      setDbMessage(error instanceof Error ? error.message : "Gagal upload foto.");
+    } finally {
+      setUploadingImage(false);
+    }
   }
 
   function makeHat(item: BulkItem, index: number, image: string | null = null): Hat {
@@ -2844,14 +2892,21 @@ export default function ThriftHatInventoryApp() {
                   />
 
                   <div className="grid gap-3 sm:grid-cols-[120px_minmax(0,1fr)] sm:items-center">
-                    <Image
-                      src={form.image || defaultImage}
-                      alt="Preview foto topi"
-                      width={240}
-                      height={180}
-                      className="aspect-[4/3] w-full rounded-lg object-cover sm:w-[120px]"
-                      unoptimized={form.image.startsWith("data:")}
-                    />
+                    <div className="relative">
+                      <Image
+                        src={form.image || defaultImage}
+                        alt="Preview foto topi"
+                        width={240}
+                        height={180}
+                        className="aspect-[4/3] w-full rounded-lg object-cover sm:w-[120px]"
+                        unoptimized={form.image.startsWith("data:")}
+                      />
+                      {uploadingImage && (
+                        <div className="absolute inset-0 flex items-center justify-center rounded-lg bg-black/40">
+                          <div className="h-6 w-6 animate-spin rounded-full border-2 border-white border-t-transparent" />
+                        </div>
+                      )}
+                    </div>
                     <div className="grid gap-3">
                       <div className="grid gap-2 sm:grid-cols-3">
                         <Button variant="secondary" onClick={() => galleryInputRef.current?.click()}>
@@ -2876,9 +2931,9 @@ export default function ThriftHatInventoryApp() {
                     </div>
                   </div>
                 </div>
-                <Button onClick={addHat} disabled={savingAction === "single" || !form.name.trim() || !form.costPrice} className="lg:col-span-2">
+                <Button onClick={addHat} disabled={savingAction === "single" || !form.name.trim() || !form.costPrice || uploadingImage} className="lg:col-span-2">
                   <PackagePlus size={17} />
-                  {savingAction === "single" ? "Menyimpan..." : "Simpan ke Stok"}
+                  {uploadingImage ? "Mengupload foto..." : savingAction === "single" ? "Menyimpan..." : "Simpan ke Stok"}
                 </Button>
               </div>
 
@@ -4416,14 +4471,21 @@ export default function ThriftHatInventoryApp() {
                 <input ref={editCameraInputRef} type="file" accept="image/*" capture="environment" className="hidden" onChange={(event) => void handleImageFile(event.target.files?.[0], "edit")} />
 
                 <div className="grid gap-3 sm:grid-cols-[120px_minmax(0,1fr)] sm:items-center">
-                  <Image
-                    src={editForm.image || defaultImage}
-                    alt="Preview foto edit"
-                    width={240}
-                    height={180}
-                    className="aspect-[4/3] w-full rounded-lg object-cover sm:w-[120px]"
-                    unoptimized={editForm.image.startsWith("data:")}
-                  />
+                  <div className="relative">
+                    <Image
+                      src={editForm.image || defaultImage}
+                      alt="Preview foto edit"
+                      width={240}
+                      height={180}
+                      className="aspect-[4/3] w-full rounded-lg object-cover sm:w-[120px]"
+                      unoptimized={editForm.image.startsWith("data:")}
+                    />
+                    {uploadingImage && (
+                      <div className="absolute inset-0 flex items-center justify-center rounded-lg bg-black/40">
+                        <div className="h-6 w-6 animate-spin rounded-full border-2 border-white border-t-transparent" />
+                      </div>
+                    )}
+                  </div>
                   <div className="grid gap-3">
                     <div className="grid gap-2 sm:grid-cols-3">
                       <Button variant="secondary" onClick={() => editGalleryInputRef.current?.click()}>
@@ -4450,17 +4512,18 @@ export default function ThriftHatInventoryApp() {
             </div>
 
             <div className="grid gap-3 sm:grid-cols-2">
+              <Button onClick={saveEditedHat} disabled={savingAction === "edit" || !editForm.name.trim() || !editForm.costPrice || uploadingImage} className="sm:order-2">
+                {uploadingImage ? "Mengupload foto..." : savingAction === "edit" ? "Menyimpan..." : "Simpan Edit"}
+              </Button>
               <Button
                 variant="secondary"
                 onClick={() => {
                   setEditModal(null);
                   setEditForm(emptyForm);
                 }}
+                className="sm:order-1"
               >
                 Batal
-              </Button>
-              <Button onClick={saveEditedHat} disabled={savingAction === "edit" || !editForm.name.trim() || !editForm.costPrice}>
-                {savingAction === "edit" ? "Menyimpan..." : "Simpan Edit"}
               </Button>
             </div>
           </motion.div>
