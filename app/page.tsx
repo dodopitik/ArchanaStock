@@ -481,15 +481,12 @@ function escapeHtml(value: string) {
     .replace(/'/g, "&#039;");
 }
 
-/** Konversi input login: kalau tidak ada @ → anggap username, konversi ke email internal */
+/** Konversi input login: kalau tidak ada @ → anggap username */
 const USERNAME_EMAIL_SUFFIX = "@archanacaps.internal";
 
-function resolveLoginEmail(input: string): { email: string; isUsername: boolean } {
-  const trimmed = input.trim().toLowerCase();
-  if (trimmed.includes("@")) return { email: trimmed, isUsername: false };
-  // Username: hapus spasi, jadikan safe slug, tambah suffix
-  const slug = trimmed.replace(/[^a-z0-9._-]/g, "");
-  return { email: `${slug}${USERNAME_EMAIL_SUFFIX}`, isUsername: true };
+function resolveLoginEmail(input: string): { isUsername: boolean } {
+  const trimmed = input.trim();
+  return { isUsername: !trimmed.includes("@") && trimmed.length > 0 };
 }
 
 function getAuthErrorMessage(message: string) {
@@ -1503,37 +1500,58 @@ export default function ThriftHatInventoryApp() {
       return;
     }
 
-    const { isUsername } = resolveLoginEmail(email);
+    const inputTrimmed = email.trim();
+    const isEmail = inputTrimmed.includes("@");
 
-    // Kalau username, lookup email dulu via API sebelum login
-    let loginEmail: string;
-    if (isUsername) {
-      try {
-        const resp = await fetch("/api/username", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ username: email.trim() }),
-        });
-        const data = await resp.json();
-        if (!resp.ok || !data.email) {
-          setMessage(data.error || "Username tidak ditemukan.");
-          setLoading(false);
-          return;
-        }
-        loginEmail = data.email;
-      } catch {
-        setMessage("Gagal menghubungi server. Coba lagi.");
-        setLoading(false);
-        return;
+    // Login pakai email — langsung tanpa lookup apapun
+    if (isEmail) {
+      const result = await supabase.auth.signInWithPassword({ email: inputTrimmed, password });
+      if (result.error) {
+        setMessage(getAuthErrorMessage(result.error.message));
+      } else if (result.data.user?.app_metadata?.status === "INACTIVE") {
+        await supabase.auth.signOut();
+        setMessage("User ini sedang nonaktif. Hubungi admin toko.");
+      } else {
+        const displayName =
+          result.data.user?.user_metadata?.name ||
+          result.data.user?.user_metadata?.username ||
+          result.data.user?.email ||
+          inputTrimmed;
+        setCurrentUser(displayName);
+        setCanManageUserMenu(canManageUsers(result.data.user));
+        setCanManageReportActions(canManageReports(result.data.user));
+        if (!canManageUsers(result.data.user)) setActiveView("dashboard");
+        setDbMessage("Login berhasil.");
       }
-    } else {
-      loginEmail = email.trim().toLowerCase();
+      setLoading(false);
+      return;
+    }
+
+    // Login pakai username — cari email via API
+    let loginEmail: string | null = null;
+    try {
+      const resp = await fetch("/api/username", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ username: inputTrimmed }),
+      });
+      if (resp.ok) {
+        const data = await resp.json();
+        loginEmail = data.email || null;
+      }
+    } catch {
+      // ignore network error, fallback ke email internal
+    }
+
+    // Fallback: coba email internal kalau API tidak bisa diakses
+    if (!loginEmail) {
+      const slug = inputTrimmed.toLowerCase().replace(/[^a-z0-9._-]/g, "");
+      loginEmail = `${slug}${USERNAME_EMAIL_SUFFIX}`;
     }
 
     const result = await supabase.auth.signInWithPassword({ email: loginEmail, password });
-
     if (result.error) {
-      setMessage(getAuthErrorMessage(result.error.message));
+      setMessage("Username atau password salah.");
     } else if (result.data.user?.app_metadata?.status === "INACTIVE") {
       await supabase.auth.signOut();
       setMessage("User ini sedang nonaktif. Hubungi admin toko.");
@@ -1542,7 +1560,7 @@ export default function ThriftHatInventoryApp() {
         result.data.user?.user_metadata?.name ||
         result.data.user?.user_metadata?.username ||
         result.data.user?.email ||
-        email;
+        inputTrimmed;
       setCurrentUser(displayName);
       setCanManageUserMenu(canManageUsers(result.data.user));
       setCanManageReportActions(canManageReports(result.data.user));
