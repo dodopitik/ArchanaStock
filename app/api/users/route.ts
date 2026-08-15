@@ -108,6 +108,7 @@ export async function POST(request: Request) {
   const body = await request.json();
   const name = String(body.name || "").trim();
   const email = String(body.email || "").trim();
+  const username = String(body.username || "").trim().toLowerCase().replace(/[^a-z0-9._-]/g, "");
   const password = String(body.password || "");
   const role = String(body.role || "Staff").trim() || "Staff";
   const status = normalizeStatus(body.status);
@@ -120,7 +121,7 @@ export async function POST(request: Request) {
     email,
     password,
     email_confirm: true,
-    user_metadata: { name },
+    user_metadata: { name, ...(username ? { username } : {}) },
     app_metadata: { created_by: String(requester.app_metadata?.created_by || requester.id), role, status },
   });
 

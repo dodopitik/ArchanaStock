@@ -109,6 +109,7 @@ type FormState = {
 type UserFormState = {
   name: string;
   email: string;
+  username: string;
   password: string;
   role: string;
   status: ManagedUserStatus;
@@ -167,10 +168,14 @@ type BulkItem = {
 };
 
 type ImageTarget = "add" | "edit";
+
+type ChartPeriod = "daily" | "weekly" | "monthly" | "alltime";
+
 type ChartPoint = {
   label: string;
   value: number;
   helper: string;
+  fullDate?: string;
 };
 type ReportPeriod = "all" | "daily" | "weekly" | "monthly";
 
@@ -207,6 +212,7 @@ const emptyForm: FormState = {
 const emptyUserForm: UserFormState = {
   name: "",
   email: "",
+  username: "",
   password: "",
   role: "Staff",
   status: "ACTIVE",
@@ -475,6 +481,17 @@ function escapeHtml(value: string) {
     .replace(/'/g, "&#039;");
 }
 
+/** Konversi input login: kalau tidak ada @ → anggap username, konversi ke email internal */
+const USERNAME_EMAIL_SUFFIX = "@archanacaps.internal";
+
+function resolveLoginEmail(input: string): { email: string; isUsername: boolean } {
+  const trimmed = input.trim().toLowerCase();
+  if (trimmed.includes("@")) return { email: trimmed, isUsername: false };
+  // Username: hapus spasi, jadikan safe slug, tambah suffix
+  const slug = trimmed.replace(/[^a-z0-9._-]/g, "");
+  return { email: `${slug}${USERNAME_EMAIL_SUFFIX}`, isUsername: true };
+}
+
 function getAuthErrorMessage(message: string) {
   const normalized = message.toLowerCase();
 
@@ -670,26 +687,148 @@ function StockViewButton({
   );
 }
 
-function SalesBarChart({ data }: { data: ChartPoint[] }) {
-  const maxValue = Math.max(...data.map((item) => item.value), 1);
+function SalesLineChart({ data, period, onPeriodChange, selectedDate, onDateChange, selectedMonth, onMonthChange }: {
+  data: ChartPoint[];
+  period: ChartPeriod;
+  onPeriodChange: (p: ChartPeriod) => void;
+  selectedDate: string;
+  onDateChange: (d: string) => void;
+  selectedMonth: string;
+  onMonthChange: (m: string) => void;
+}) {
+  const [tooltip, setTooltip] = useState<{ index: number; x: number; y: number } | null>(null);
+  const svgRef = useRef<SVGSVGElement>(null);
+  const W = 600; const H = 200; const PAD = { top: 16, right: 16, bottom: 40, left: 60 };
+  const innerW = W - PAD.left - PAD.right;
+  const innerH = H - PAD.top - PAD.bottom;
+
+  const maxVal = Math.max(...data.map((d) => d.value), 1);
+  const points = data.map((d, i) => ({
+    x: PAD.left + (data.length < 2 ? innerW / 2 : (i / (data.length - 1)) * innerW),
+    y: PAD.top + innerH - (d.value / maxVal) * innerH,
+  }));
+
+  const pathD = points.length < 2
+    ? ""
+    : points.reduce((acc, p, i) => {
+        if (i === 0) return `M ${p.x} ${p.y}`;
+        const prev = points[i - 1];
+        const cx = (prev.x + p.x) / 2;
+        return `${acc} C ${cx} ${prev.y} ${cx} ${p.y} ${p.x} ${p.y}`;
+      }, "");
+
+  const areaD = pathD ? `${pathD} L ${points[points.length - 1].x} ${PAD.top + innerH} L ${points[0].x} ${PAD.top + innerH} Z` : "";
+
+  const yTicks = [0, 0.25, 0.5, 0.75, 1].map((t) => ({
+    y: PAD.top + innerH - t * innerH,
+    label: formatRupiah(t * maxVal),
+  }));
+
+  const periods: { key: ChartPeriod; label: string }[] = [
+    { key: "daily", label: "Harian" },
+    { key: "weekly", label: "Mingguan" },
+    { key: "monthly", label: "Bulanan" },
+    { key: "alltime", label: "All Time" },
+  ];
 
   return (
     <Panel className="p-4 sm:p-5">
-      <SectionHeader icon={BarChart3} title="Grafik Penjualan" description="Omzet per tanggal dari item yang sudah SOLD." />
-      <div className="grid gap-3">
-        {data.map((item) => (
-          <div key={item.label} className="grid gap-2">
-            <div className="flex items-center justify-between gap-3 text-sm">
-              <span className="font-bold text-slate-700">{item.label}</span>
-              <span className="shrink-0 font-black text-slate-950">{formatRupiah(item.value)}</span>
-            </div>
-            <div className="h-3 overflow-hidden rounded-full bg-slate-100">
-              <div className="h-full rounded-full bg-red-600" style={{ width: `${Math.max(8, (item.value / maxValue) * 100)}%` }} />
-            </div>
-            <p className="text-xs font-medium text-slate-400">{item.helper}</p>
+      <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
+        <SectionHeader icon={BarChart3} title="Grafik Penjualan" description="Omzet per periode dari item SOLD." />
+        <div className="flex flex-wrap items-center gap-2">
+          {/* Period tabs */}
+          <div className="flex rounded-lg border border-slate-200 bg-slate-50 p-1 gap-0.5">
+            {periods.map((p) => (
+              <button key={p.key} type="button" onClick={() => onPeriodChange(p.key)}
+                className={`h-8 rounded-md px-3 text-xs font-bold transition ${period === p.key ? "bg-slate-950 text-white shadow-sm" : "text-slate-500 hover:text-slate-950"}`}>
+                {p.label}
+              </button>
+            ))}
           </div>
-        ))}
+          {/* Date pickers */}
+          {period === "daily" && (
+            <input type="date" value={selectedDate} onChange={(e) => onDateChange(e.target.value)}
+              className="h-9 rounded-lg border border-slate-200 bg-white px-3 text-xs font-medium outline-none transition focus:border-cyan-500 focus:ring-2 focus:ring-cyan-100" />
+          )}
+          {period === "weekly" && (
+            <input type="date" value={selectedDate} onChange={(e) => onDateChange(e.target.value)}
+              className="h-9 rounded-lg border border-slate-200 bg-white px-3 text-xs font-medium outline-none transition focus:border-cyan-500 focus:ring-2 focus:ring-cyan-100" />
+          )}
+          {period === "monthly" && (
+            <input type="month" value={selectedMonth} onChange={(e) => onMonthChange(e.target.value)}
+              className="h-9 rounded-lg border border-slate-200 bg-white px-3 text-xs font-medium outline-none transition focus:border-cyan-500 focus:ring-2 focus:ring-cyan-100" />
+          )}
+        </div>
       </div>
+
+      {data.length === 0 || (data.length === 1 && data[0].value === 0) ? (
+        <div className="flex h-48 items-center justify-center rounded-xl border border-dashed border-slate-200 text-sm font-medium text-slate-400">
+          Belum ada penjualan pada periode ini.
+        </div>
+      ) : (
+        <div className="relative overflow-hidden rounded-xl bg-slate-50">
+          <svg ref={svgRef} viewBox={`0 0 ${W} ${H}`} className="w-full" style={{ height: 220 }}
+            onMouseLeave={() => setTooltip(null)}
+            onMouseMove={(e) => {
+              if (!svgRef.current || data.length < 2) return;
+              const rect = svgRef.current.getBoundingClientRect();
+              const mx = ((e.clientX - rect.left) / rect.width) * W;
+              let closest = 0;
+              let minDist = Infinity;
+              points.forEach((p, i) => { const d = Math.abs(p.x - mx); if (d < minDist) { minDist = d; closest = i; } });
+              setTooltip({ index: closest, x: points[closest].x, y: points[closest].y });
+            }}>
+            <defs>
+              <linearGradient id="chartGrad" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0%" stopColor="#ef4444" stopOpacity="0.15" />
+                <stop offset="100%" stopColor="#ef4444" stopOpacity="0" />
+              </linearGradient>
+            </defs>
+
+            {/* Y-axis grid lines */}
+            {yTicks.map((tick, i) => (
+              <g key={i}>
+                <line x1={PAD.left} y1={tick.y} x2={W - PAD.right} y2={tick.y} stroke="#e2e8f0" strokeWidth="1" />
+                <text x={PAD.left - 6} y={tick.y + 4} textAnchor="end" fontSize="9" fill="#94a3b8" fontFamily="system-ui">{tick.label}</text>
+              </g>
+            ))}
+
+            {/* Area fill */}
+            {areaD && <path d={areaD} fill="url(#chartGrad)" />}
+
+            {/* Line */}
+            {pathD && <path d={pathD} fill="none" stroke="#ef4444" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />}
+
+            {/* X-axis labels */}
+            {points.map((p, i) => (
+              <text key={i} x={p.x} y={H - 8} textAnchor="middle" fontSize="9" fill="#94a3b8" fontFamily="system-ui">
+                {data[i].label}
+              </text>
+            ))}
+
+            {/* Dots */}
+            {points.map((p, i) => (
+              <circle key={i} cx={p.x} cy={p.y} r={tooltip?.index === i ? 5 : 3.5}
+                fill={tooltip?.index === i ? "#ef4444" : "white"} stroke="#ef4444" strokeWidth="2"
+                style={{ transition: "r 0.15s, fill 0.15s" }} />
+            ))}
+
+            {/* Tooltip vertical line */}
+            {tooltip !== null && (
+              <line x1={tooltip.x} y1={PAD.top} x2={tooltip.x} y2={PAD.top + innerH} stroke="#ef4444" strokeWidth="1" strokeDasharray="4 3" opacity="0.5" />
+            )}
+          </svg>
+
+          {/* Tooltip box */}
+          {tooltip !== null && data[tooltip.index] && (
+            <div className="pointer-events-none absolute top-3 left-1/2 -translate-x-1/2 rounded-xl border border-slate-200 bg-white px-3 py-2 shadow-lg text-center">
+              <p className="text-xs font-bold text-slate-500">{data[tooltip.index].fullDate || data[tooltip.index].label}</p>
+              <p className="mt-0.5 text-base font-black text-slate-950">{formatRupiah(data[tooltip.index].value)}</p>
+              <p className="text-xs font-medium text-red-500">{data[tooltip.index].helper}</p>
+            </div>
+          )}
+        </div>
+      )}
     </Panel>
   );
 }
@@ -753,6 +892,7 @@ function LoginScreen({
   onPasswordChange: (value: string) => void;
   onSubmit: () => void;
 }) {
+  const isUsername = email.trim().length > 0 && !email.includes("@");
   return (
     <main className="grid min-h-screen place-items-center bg-[#f4f1ed] p-3 sm:p-5">
       <section className="grid w-full max-w-6xl overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl md:grid-cols-[minmax(0,1.08fr)_440px]">
@@ -769,7 +909,6 @@ function LoginScreen({
                 Kelola topi masuk, stok available, item sold, nota, dan laporan omzet dalam satu dashboard yang siap dipakai harian.
               </p>
             </div>
-
             <div className="grid gap-2 min-[430px]:grid-cols-3 sm:gap-3">
               <div className="rounded-xl border border-white/10 bg-white/10 p-3 sm:p-4">
                 <p className="text-xl font-black sm:text-2xl">Live</p>
@@ -791,7 +930,7 @@ function LoginScreen({
           <div className="mb-5 sm:mb-7">
             <p className="text-sm font-bold text-red-600">Welcome back</p>
             <h2 className="mt-2 text-2xl font-black text-slate-950 sm:text-3xl">Masuk ke dashboard</h2>
-            <p className="mt-2 text-sm leading-6 text-slate-500">Gunakan email yang terdaftar untuk mengakses data toko kamu.</p>
+            <p className="mt-2 text-sm leading-6 text-slate-500">Masuk dengan email atau username yang terdaftar.</p>
           </div>
 
           <div className="mb-5 rounded-xl border border-slate-200 bg-slate-50 p-4">
@@ -800,7 +939,7 @@ function LoginScreen({
               <div>
                 <p className="text-sm font-black text-slate-950">{isSupabaseConfigured ? "Database connected" : "Demo mode"}</p>
                 <p className="mt-1 text-xs leading-5 text-slate-500">
-                  {isSupabaseConfigured ? "Data inventory tersinkron ke Supabase Auth dan tabel hats." : "Mode lokal aktif sampai konfigurasi Supabase tersedia."}
+                  {isSupabaseConfigured ? "Data inventory tersinkron ke Supabase." : "Mode lokal aktif sampai konfigurasi Supabase tersedia."}
                 </p>
               </div>
             </div>
@@ -808,12 +947,18 @@ function LoginScreen({
 
           <div className="mt-6 grid gap-4">
             <label className="grid gap-2 text-sm font-semibold text-slate-700">
-              Email
+              <span className="flex items-center gap-2">
+                Email atau Username
+                {isUsername && (
+                  <span className="rounded-full bg-cyan-100 px-2 py-0.5 text-xs font-bold text-cyan-700">Username</span>
+                )}
+              </span>
               <input
                 value={email}
                 onChange={(event) => onEmailChange(event.target.value)}
-                placeholder="admin@archanacaps.test"
-                type="email"
+                placeholder="email@toko.com atau username"
+                type="text"
+                autoComplete="username"
                 className="h-11 rounded-lg border border-slate-200 bg-white px-3 text-sm font-medium text-slate-950 outline-none transition placeholder:text-slate-400 focus:border-cyan-500 focus:ring-4 focus:ring-cyan-100"
               />
             </label>
@@ -825,6 +970,7 @@ function LoginScreen({
                 onChange={(event) => onPasswordChange(event.target.value)}
                 placeholder="minimal 6 karakter"
                 type="password"
+                autoComplete="current-password"
                 className="h-11 rounded-lg border border-slate-200 bg-white px-3 text-sm font-medium text-slate-950 outline-none transition placeholder:text-slate-400 focus:border-cyan-500 focus:ring-4 focus:ring-cyan-100"
               />
             </label>
@@ -862,6 +1008,9 @@ export default function ThriftHatInventoryApp() {
   const [soldPrice, setSoldPrice] = useState("");
   const [platform, setPlatform] = useState("Shopee");
   const [reportPeriod, setReportPeriod] = useState<ReportPeriod>("all");
+  const [chartPeriod, setChartPeriod] = useState<ChartPeriod>("weekly");
+  const [chartDate, setChartDate] = useState(() => toDateInputValue(new Date()));
+  const [chartMonth, setChartMonth] = useState(() => toDateInputValue(new Date()).slice(0, 7));
   const [reportDate, setReportDate] = useState(() => toDateInputValue(new Date()));
   const [reportMonth, setReportMonth] = useState(() => toDateInputValue(new Date()).slice(0, 7));
   const [modalMasukPeriod, setModalMasukPeriod] = useState<ReportPeriod>("all");
@@ -1171,29 +1320,79 @@ export default function ThriftHatInventoryApp() {
     [filteredExpenses],
   );
 
-  const salesChart = useMemo(() => {
+  const salesChart = useMemo((): ChartPoint[] => {
+    // Hitung semua penjualan per tanggal terlebih dahulu
     const salesByDate = new Map<string, { revenue: number; count: number }>();
-
     soldHats.forEach((hat) => {
-      const date = hat.soldAt || "Tanpa tanggal";
-      const current = salesByDate.get(date) || { revenue: 0, count: 0 };
-      salesByDate.set(date, {
-        revenue: current.revenue + (hat.soldPrice || 0),
-        count: current.count + 1,
-      });
+      if (!hat.soldAt) return;
+      const current = salesByDate.get(hat.soldAt) || { revenue: 0, count: 0 };
+      salesByDate.set(hat.soldAt, { revenue: current.revenue + (hat.soldPrice || 0), count: current.count + 1 });
     });
 
-    const points = Array.from(salesByDate.entries())
-      .sort(([dateA], [dateB]) => dateA.localeCompare(dateB))
-      .slice(-7)
-      .map(([date, value]) => ({
-        label: date,
-        value: value.revenue,
-        helper: `${value.count} item terjual`,
-      }));
+    const today = toDateInputValue(new Date());
 
-    return points.length ? points : [{ label: "Belum ada SOLD", value: 0, helper: "Tandai item SOLD untuk mulai melihat grafik." }];
-  }, [soldHats]);
+    if (chartPeriod === "daily") {
+      // Harian: setiap jam (0-23) untuk hari yang dipilih
+      // Karena soldAt hanya simpan tanggal (tanpa jam), kita tampilkan per item dalam hari itu
+      const dayHats = soldHats.filter((h) => h.soldAt === chartDate);
+      if (!dayHats.length) return [];
+      // Kelompokkan per slot 3 jam: 00-03, 03-06, ... tapi karena sold_at tanpa jam
+      // tampilkan total harian dalam 1 titik saja + breakdown item
+      const total = dayHats.reduce((s, h) => s + (h.soldPrice || 0), 0);
+      return [{ label: chartDate, value: total, helper: `${dayHats.length} item terjual`, fullDate: formatDisplayDate(chartDate) }];
+    }
+
+    if (chartPeriod === "weekly") {
+      // Mingguan: 7 hari terakhir dari tanggal acuan
+      const anchor = parseDateInputValue(chartDate);
+      const day = anchor.getDay() || 7;
+      const monday = new Date(anchor); monday.setDate(anchor.getDate() - day + 1);
+      return Array.from({ length: 7 }, (_, i) => {
+        const d = new Date(monday); d.setDate(monday.getDate() + i);
+        const key = toDateInputValue(d);
+        const val = salesByDate.get(key) || { revenue: 0, count: 0 };
+        const dayNames = ["Min", "Sen", "Sel", "Rab", "Kam", "Jum", "Sab"];
+        return {
+          label: dayNames[d.getDay()] ?? key.slice(8),
+          value: val.revenue,
+          helper: val.count ? `${val.count} item` : "0 item",
+          fullDate: formatDisplayDate(key),
+        };
+      });
+    }
+
+    if (chartPeriod === "monthly") {
+      // Bulanan: per hari dalam bulan yang dipilih
+      const [yr, mo] = chartMonth.split("-").map(Number);
+      const daysInMonth = new Date(yr, mo, 0).getDate();
+      return Array.from({ length: daysInMonth }, (_, i) => {
+        const day = i + 1;
+        const key = `${chartMonth}-${String(day).padStart(2, "0")}`;
+        const val = salesByDate.get(key) || { revenue: 0, count: 0 };
+        return {
+          label: String(day),
+          value: val.revenue,
+          helper: val.count ? `${val.count} item` : "0 item",
+          fullDate: formatDisplayDate(key),
+        };
+      });
+    }
+
+    // All time: per bulan
+    const monthMap = new Map<string, { revenue: number; count: number }>();
+    salesByDate.forEach(({ revenue, count }, date) => {
+      const monthKey = date.slice(0, 7);
+      const cur = monthMap.get(monthKey) || { revenue: 0, count: 0 };
+      monthMap.set(monthKey, { revenue: cur.revenue + revenue, count: cur.count + count });
+    });
+    return Array.from(monthMap.entries())
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([monthKey, val]) => {
+        const [yr, mo] = monthKey.split("-").map(Number);
+        const label = new Intl.DateTimeFormat("id-ID", { month: "short", year: "2-digit" }).format(new Date(yr, mo - 1, 1));
+        return { label, value: val.revenue, helper: `${val.count} item`, fullDate: monthKey };
+      });
+  }, [soldHats, chartPeriod, chartDate, chartMonth]);
   const platformChart = useMemo(() => {
     const salesByPlatform = new Map<string, { revenue: number; count: number }>();
 
@@ -1303,7 +1502,8 @@ export default function ThriftHatInventoryApp() {
       return;
     }
 
-    const result = await supabase.auth.signInWithPassword({ email, password });
+    const { email: resolvedEmail } = resolveLoginEmail(email);
+    const result = await supabase.auth.signInWithPassword({ email: resolvedEmail, password });
 
     if (result.error) {
       setMessage(getAuthErrorMessage(result.error.message));
@@ -1311,11 +1511,17 @@ export default function ThriftHatInventoryApp() {
       await supabase.auth.signOut();
       setMessage("User ini sedang nonaktif. Hubungi admin toko.");
     } else {
-      setCurrentUser(result.data.user?.email || email);
+      // Tampilkan nama/username dari metadata kalau ada, fallback ke email
+      const displayName =
+        result.data.user?.user_metadata?.name ||
+        result.data.user?.user_metadata?.username ||
+        result.data.user?.email ||
+        email;
+      setCurrentUser(displayName);
       setCanManageUserMenu(canManageUsers(result.data.user));
       setCanManageReportActions(canManageReports(result.data.user));
       if (!canManageUsers(result.data.user)) setActiveView("dashboard");
-      setDbMessage("Login Supabase berhasil.");
+      setDbMessage("Login berhasil.");
     }
 
     setLoading(false);
@@ -2264,9 +2470,13 @@ export default function ThriftHatInventoryApp() {
 
   function startEditUser(user: ManagedUser) {
     setEditingUserId(user.id);
+    // Kalau email pakai suffix internal → email aslinya adalah username, kosongkan kolom email
+    const isUsernameEmail = user.email.endsWith(USERNAME_EMAIL_SUFFIX);
+    const usernameFromEmail = isUsernameEmail ? user.email.replace(USERNAME_EMAIL_SUFFIX, "") : "";
     setUserForm({
       name: user.name,
-      email: user.email,
+      email: isUsernameEmail ? "" : user.email,
+      username: usernameFromEmail,
       password: "",
       role: user.role,
       status: user.status,
@@ -2280,12 +2490,17 @@ export default function ThriftHatInventoryApp() {
   }
 
   async function saveUser() {
-    if (!userForm.name.trim() || !userForm.email.trim() || (!editingUserId && userForm.password.length < 6)) return;
+    if (!userForm.name.trim() || (!userForm.email.trim() && !userForm.username.trim()) || (!editingUserId && userForm.password.length < 6)) return;
     setSavingAction("user");
+
+    // Resolve email: kalau ada email pakai email, kalau hanya username pakai konversi internal
+    const username = userForm.username.trim().toLowerCase().replace(/[^a-z0-9._-]/g, "");
+    const resolvedEmail = userForm.email.trim() || `${username}${USERNAME_EMAIL_SUFFIX}`;
 
     const userPayload = {
       name: userForm.name.trim(),
-      email: userForm.email.trim(),
+      email: resolvedEmail,
+      username: username || undefined,
       password: userForm.password,
       role: userForm.role.trim() || "Staff",
       status: userForm.status,
@@ -2345,7 +2560,7 @@ export default function ThriftHatInventoryApp() {
       ]);
     }
 
-    setDbMessage(editingUserId ? "User berhasil diperbarui." : "User baru berhasil ditambahkan.");
+    setDbMessage(editingUserId ? "User berhasil diperbarui." : `User "${userForm.name.trim()}" berhasil ditambahkan. ${username ? `Login pakai username: ${username}` : ""}`);
     resetUserForm();
     setSavingAction(null);
   }
@@ -2847,7 +3062,15 @@ export default function ThriftHatInventoryApp() {
               </section>
 
               <section className="grid gap-5 xl:grid-cols-[minmax(0,1.35fr)_minmax(300px,0.65fr)]">
-                <SalesBarChart data={salesChart} />
+                <SalesLineChart
+                  data={salesChart}
+                  period={chartPeriod}
+                  onPeriodChange={setChartPeriod}
+                  selectedDate={chartDate}
+                  onDateChange={setChartDate}
+                  selectedMonth={chartMonth}
+                  onMonthChange={setChartMonth}
+                />
                 <PlatformBreakdown data={platformChart} />
               </section>
             </>
@@ -3080,7 +3303,7 @@ export default function ThriftHatInventoryApp() {
 
                 <div className="grid gap-4">
                   <label className="grid gap-2 text-sm font-semibold text-slate-700">
-                    Nama user
+                    Nama lengkap
                     <input
                       value={userForm.name}
                       onChange={(event) => updateUserForm("name", event.target.value)}
@@ -3089,11 +3312,24 @@ export default function ThriftHatInventoryApp() {
                     />
                   </label>
                   <label className="grid gap-2 text-sm font-semibold text-slate-700">
-                    Email
+                    Username <span className="font-normal text-slate-400">(untuk login tanpa email)</span>
+                    <input
+                      value={userForm.username}
+                      onChange={(event) => updateUserForm("username", event.target.value.toLowerCase().replace(/[^a-z0-9._-]/g, ""))}
+                      placeholder="contoh: kasir1"
+                      autoComplete="off"
+                      className="h-11 rounded-lg border border-slate-200 bg-white px-3 text-sm font-medium text-slate-950 outline-none transition placeholder:text-slate-400 focus:border-cyan-500 focus:ring-4 focus:ring-cyan-100"
+                    />
+                    {userForm.username && (
+                      <p className="text-xs text-slate-400">Login dengan: <span className="font-bold text-slate-600">{userForm.username}</span> + password</p>
+                    )}
+                  </label>
+                  <label className="grid gap-2 text-sm font-semibold text-slate-700">
+                    Email <span className="font-normal text-slate-400">(opsional, bisa login pakai username)</span>
                     <input
                       value={userForm.email}
                       onChange={(event) => updateUserForm("email", event.target.value)}
-                      placeholder="staff@archanacaps.test"
+                      placeholder="staff@email.com (opsional)"
                       type="email"
                       className="h-11 rounded-lg border border-slate-200 bg-white px-3 text-sm font-medium text-slate-950 outline-none transition placeholder:text-slate-400 focus:border-cyan-500 focus:ring-4 focus:ring-cyan-100"
                     />
@@ -3134,12 +3370,12 @@ export default function ThriftHatInventoryApp() {
                   </label>
 
                   <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-1 2xl:grid-cols-2">
-                    <Button variant="secondary" onClick={resetUserForm} disabled={!editingUserId && !userForm.name && !userForm.email}>
+                    <Button variant="secondary" onClick={resetUserForm} disabled={!editingUserId && !userForm.name && !userForm.email && !userForm.username}>
                       Batal
                     </Button>
                     <Button
                       onClick={saveUser}
-                      disabled={savingAction === "user" || !userForm.name.trim() || !userForm.email.trim() || (!editingUserId && userForm.password.length < 6)}
+                      disabled={savingAction === "user" || !userForm.name.trim() || (!userForm.email.trim() && !userForm.username.trim()) || (!editingUserId && userForm.password.length < 6)}
                     >
                       <UserPlus size={16} />
                       {savingAction === "user" ? "Menyimpan..." : editingUserId ? "Simpan Edit" : "Tambah User"}
@@ -3159,7 +3395,9 @@ export default function ThriftHatInventoryApp() {
                           <h3 className="truncate font-black text-slate-950">{user.name}</h3>
                           <p className="mt-1 flex items-center gap-2 truncate text-sm font-medium text-slate-500">
                             <Mail size={14} />
-                            {user.email}
+                            {user.email.endsWith(USERNAME_EMAIL_SUFFIX)
+                              ? <span className="text-cyan-600">@{user.email.replace(USERNAME_EMAIL_SUFFIX, "")}</span>
+                              : user.email}
                           </p>
                         </div>
                         <span className={`shrink-0 rounded-full px-3 py-1 text-xs font-black ${user.status === "ACTIVE" ? "bg-emerald-50 text-emerald-700" : "bg-slate-100 text-slate-500"}`}>
@@ -3199,7 +3437,11 @@ export default function ThriftHatInventoryApp() {
                         <tr key={user.id}>
                           <td className="px-4 py-4">
                             <p className="font-bold text-slate-950">{user.name}</p>
-                            <p className="mt-1 text-xs font-medium text-slate-400">{user.email}</p>
+                            <p className="mt-1 text-xs font-medium text-slate-400">
+                              {user.email.endsWith(USERNAME_EMAIL_SUFFIX)
+                                ? `@${user.email.replace(USERNAME_EMAIL_SUFFIX, "")}`
+                                : user.email}
+                            </p>
                           </td>
                           <td className="px-4 py-4 font-semibold text-slate-600">{user.role}</td>
                           <td className="px-4 py-4">
