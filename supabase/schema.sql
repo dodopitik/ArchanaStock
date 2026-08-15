@@ -112,3 +112,23 @@ create policy "Users can delete own expenses"
   );
 
 notify pgrst, 'reload schema';
+
+-- Tabel profil user: menyimpan username untuk login selain email
+create table if not exists public.user_profiles (
+  id uuid primary key default gen_random_uuid(),
+  auth_user_id uuid not null unique references auth.users(id) on delete cascade,
+  workspace_owner_id uuid not null references auth.users(id) on delete cascade,
+  username text unique,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+alter table public.user_profiles enable row level security;
+
+-- Hanya service role yang mengakses tabel ini (diakses lewat API route, bukan client)
+drop policy if exists "Service role only user_profiles" on public.user_profiles;
+
+create index if not exists user_profiles_username_idx on public.user_profiles (username);
+create index if not exists user_profiles_workspace_idx on public.user_profiles (workspace_owner_id);
+
+notify pgrst, 'reload schema';

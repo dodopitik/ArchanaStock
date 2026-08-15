@@ -84,6 +84,7 @@ type ManagedUser = {
   authUserId: string | null;
   name: string;
   email: string;
+  username: string;
   role: string;
   status: ManagedUserStatus;
   createdAt: string;
@@ -94,6 +95,7 @@ type ApiManagedUser = {
   authUserId: string | null;
   name: string;
   email: string;
+  username: string;
   role: string;
   status: ManagedUserStatus;
   createdAt: string;
@@ -318,6 +320,7 @@ function mapApiManagedUser(row: ApiManagedUser): ManagedUser {
     authUserId: row.authUserId,
     name: row.name,
     email: row.email,
+    username: row.username || "",
     role: row.role,
     status: row.status,
     createdAt: row.createdAt,
@@ -1039,6 +1042,7 @@ export default function ThriftHatInventoryApp() {
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [deletingUserId, setDeletingUserId] = useState<string | null>(null);
   const [userDetailModal, setUserDetailModal] = useState<ManagedUser | null>(null);
+  const [addUserModalOpen, setAddUserModalOpen] = useState(false);
   const [cameraOpen, setCameraOpen] = useState(false);
   const [cameraError, setCameraError] = useState("");
   const [cameraReady, setCameraReady] = useState(false);
@@ -2514,23 +2518,22 @@ export default function ThriftHatInventoryApp() {
 
   function startEditUser(user: ManagedUser) {
     setEditingUserId(user.id);
-    // Kalau email pakai suffix internal → email aslinya adalah username, kosongkan kolom email
     const isUsernameEmail = user.email.endsWith(USERNAME_EMAIL_SUFFIX);
-    const usernameFromEmail = isUsernameEmail ? user.email.replace(USERNAME_EMAIL_SUFFIX, "") : "";
     setUserForm({
       name: user.name,
       email: isUsernameEmail ? "" : user.email,
-      username: usernameFromEmail,
+      username: user.username || (isUsernameEmail ? user.email.replace(USERNAME_EMAIL_SUFFIX, "") : ""),
       password: "",
       role: user.role,
       status: user.status,
     });
-    setActiveView("users");
+    setAddUserModalOpen(true);
   }
 
   function resetUserForm() {
     setEditingUserId(null);
     setUserForm(emptyUserForm);
+    setAddUserModalOpen(false);
   }
 
   async function saveUser() {
@@ -2596,6 +2599,7 @@ export default function ThriftHatInventoryApp() {
           authUserId: null,
           name: userPayload.name,
           email: userPayload.email,
+          username: username,
           role: userPayload.role,
           status: userPayload.status,
           createdAt: new Date().toISOString(),
@@ -3337,195 +3341,138 @@ export default function ThriftHatInventoryApp() {
           )}
 
           {activeView === "users" && (
-            <section className="grid gap-5 xl:grid-cols-[380px_minmax(0,1fr)]">
-              <Panel className="p-4 sm:p-5">
-                <SectionHeader
-                  icon={editingUserId ? Pencil : UserPlus}
-                  title={editingUserId ? "Edit User" : "Tambah User"}
-                  description="Kelola daftar user internal toko untuk operasional dashboard."
-                />
-
-                <div className="grid gap-4">
-                  <label className="grid gap-2 text-sm font-semibold text-slate-700">
-                    Nama lengkap
-                    <input
-                      value={userForm.name}
-                      onChange={(event) => updateUserForm("name", event.target.value)}
-                      placeholder="Nama staff"
-                      className="h-11 rounded-lg border border-slate-200 bg-white px-3 text-sm font-medium text-slate-950 outline-none transition placeholder:text-slate-400 focus:border-cyan-500 focus:ring-4 focus:ring-cyan-100"
-                    />
-                  </label>
-                  <label className="grid gap-2 text-sm font-semibold text-slate-700">
-                    Username <span className="font-normal text-slate-400">(untuk login tanpa email)</span>
-                    <input
-                      value={userForm.username}
-                      onChange={(event) => updateUserForm("username", event.target.value.toLowerCase().replace(/[^a-z0-9._-]/g, ""))}
-                      placeholder="contoh: kasir1"
-                      autoComplete="off"
-                      className="h-11 rounded-lg border border-slate-200 bg-white px-3 text-sm font-medium text-slate-950 outline-none transition placeholder:text-slate-400 focus:border-cyan-500 focus:ring-4 focus:ring-cyan-100"
-                    />
-                    {userForm.username && (
-                      <p className="text-xs text-slate-400">Login dengan: <span className="font-bold text-slate-600">{userForm.username}</span> + password</p>
-                    )}
-                  </label>
-                  <label className="grid gap-2 text-sm font-semibold text-slate-700">
-                    Email <span className="font-normal text-slate-400">(opsional, bisa login pakai username)</span>
-                    <input
-                      value={userForm.email}
-                      onChange={(event) => updateUserForm("email", event.target.value)}
-                      placeholder="staff@email.com (opsional)"
-                      type="email"
-                      className="h-11 rounded-lg border border-slate-200 bg-white px-3 text-sm font-medium text-slate-950 outline-none transition placeholder:text-slate-400 focus:border-cyan-500 focus:ring-4 focus:ring-cyan-100"
-                    />
-                  </label>
-                  <label className="grid gap-2 text-sm font-semibold text-slate-700">
-                    Password {editingUserId ? "baru opsional" : ""}
-                    <input
-                      value={userForm.password}
-                      onChange={(event) => updateUserForm("password", event.target.value)}
-                      placeholder={editingUserId ? "Kosongkan jika tidak diganti" : "Minimal 6 karakter"}
-                      type="password"
-                      className="h-11 rounded-lg border border-slate-200 bg-white px-3 text-sm font-medium text-slate-950 outline-none transition placeholder:text-slate-400 focus:border-cyan-500 focus:ring-4 focus:ring-cyan-100"
-                    />
-                  </label>
-                  <label className="grid gap-2 text-sm font-semibold text-slate-700">
-                    Role
-                    <select
-                      value={userForm.role}
-                      onChange={(event) => updateUserForm("role", event.target.value)}
-                      className="h-11 rounded-lg border border-slate-200 bg-white px-3 text-sm font-medium text-slate-950 outline-none transition focus:border-cyan-500 focus:ring-4 focus:ring-cyan-100"
-                    >
-                      <option>Owner</option>
-                      <option>Admin</option>
-                      <option>Staff</option>
-                      <option>Kasir</option>
-                    </select>
-                  </label>
-                  <label className="grid gap-2 text-sm font-semibold text-slate-700">
-                    Status
-                    <select
-                      value={userForm.status}
-                      onChange={(event) => updateUserForm("status", event.target.value as ManagedUserStatus)}
-                      className="h-11 rounded-lg border border-slate-200 bg-white px-3 text-sm font-medium text-slate-950 outline-none transition focus:border-cyan-500 focus:ring-4 focus:ring-cyan-100"
-                    >
-                      <option value="ACTIVE">Aktif</option>
-                      <option value="INACTIVE">Nonaktif</option>
-                    </select>
-                  </label>
-
-                  <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-1 2xl:grid-cols-2">
-                    <Button variant="secondary" onClick={resetUserForm} disabled={!editingUserId && !userForm.name && !userForm.email && !userForm.username}>
-                      Batal
-                    </Button>
-                    <Button
-                      onClick={saveUser}
-                      disabled={savingAction === "user" || !userForm.name.trim() || (!userForm.email.trim() && !userForm.username.trim()) || (!editingUserId && userForm.password.length < 6)}
-                    >
-                      <UserPlus size={16} />
-                      {savingAction === "user" ? "Menyimpan..." : editingUserId ? "Simpan Edit" : "Tambah User"}
-                    </Button>
+            <Panel className="p-4 sm:p-5">
+              {/* Header + tombol tambah user */}
+              <div className="mb-5 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+                <div className="flex items-start gap-3">
+                  <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-slate-100 text-slate-700">
+                    <Users size={19} />
+                  </div>
+                  <div>
+                    <h2 className="text-lg font-bold text-slate-950">Daftar User</h2>
+                    <p className="mt-1 text-sm text-slate-500">Kelola akun yang bisa mengakses dashboard toko.</p>
                   </div>
                 </div>
-              </Panel>
+                {canManageUserMenu && (
+                  <Button onClick={() => { resetUserForm(); setAddUserModalOpen(true); }} className="shrink-0 bg-blue-600 hover:bg-blue-500">
+                    <UserPlus size={16} />
+                    Tambah User
+                  </Button>
+                )}
+              </div>
 
-              <Panel className="p-4 sm:p-5">
-                <SectionHeader icon={Users} title="Daftar User" description="Edit role, nonaktifkan, atau hapus user dari daftar operasional." />
-
-                <div className="grid gap-3 lg:hidden">
-                  {users.map((user) => (
-                    <article key={user.id} className="rounded-xl border border-slate-200 bg-white p-4">
-                      <div className="flex items-start justify-between gap-3">
-                        <div className="min-w-0">
-                          <h3 className="truncate font-black text-slate-950">{user.name}</h3>
-                          <p className="mt-1 flex items-center gap-2 truncate text-sm font-medium text-slate-500">
-                            <Mail size={14} />
-                            {user.email.endsWith(USERNAME_EMAIL_SUFFIX)
-                              ? <span className="text-cyan-600">@{user.email.replace(USERNAME_EMAIL_SUFFIX, "")}</span>
-                              : user.email}
-                          </p>
-                        </div>
-                        <span className={`shrink-0 rounded-full px-3 py-1 text-xs font-black ${user.status === "ACTIVE" ? "bg-emerald-50 text-emerald-700" : "bg-slate-100 text-slate-500"}`}>
-                          {user.status === "ACTIVE" ? "Aktif" : "Nonaktif"}
-                        </span>
-                      </div>
-                      <div className="mt-4 flex items-center justify-between gap-3">
-                        <span className="inline-flex items-center gap-2 rounded-full bg-slate-100 px-3 py-1 text-xs font-bold text-slate-600">
-                          <ShieldCheck size={14} />
-                          {user.role}
-                        </span>
-                        <div className="flex gap-2">
-                          <Button variant="secondary" onClick={() => setUserDetailModal(user)} className="h-9 px-3">
-                            <User size={15} />
-                          </Button>
-                          <Button variant="secondary" onClick={() => startEditUser(user)} className="h-9 px-3">
-                            <Pencil size={15} />
-                          </Button>
-                          <Button variant="secondary" onClick={() => void deleteUser(user)} disabled={deletingUserId === user.id} className="h-9 px-3">
-                            <Trash2 size={15} />
-                          </Button>
-                        </div>
-                      </div>
-                    </article>
-                  ))}
-                </div>
-
-                <div className="hidden overflow-x-auto rounded-xl border border-slate-200 lg:block">
-                  <table className="w-full min-w-[720px] text-left text-sm">
-                    <thead className="bg-slate-50 text-xs font-bold uppercase text-slate-500">
-                      <tr>
-                        <th className="px-4 py-3">User</th>
-                        <th className="px-4 py-3">Role</th>
-                        <th className="px-4 py-3">Status</th>
-                        <th className="px-4 py-3">Aksi</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-100 bg-white">
-                      {users.map((user) => (
-                        <tr key={user.id}>
-                          <td className="px-4 py-4">
-                            <p className="font-bold text-slate-950">{user.name}</p>
-                            <p className="mt-1 text-xs font-medium text-slate-400">
-                              {user.email.endsWith(USERNAME_EMAIL_SUFFIX)
-                                ? `@${user.email.replace(USERNAME_EMAIL_SUFFIX, "")}`
-                                : user.email}
+              {/* Kartu mobile */}
+              <div className="grid gap-3 lg:hidden">
+                {users.map((user) => (
+                  <article key={user.id} className="rounded-xl border border-slate-200 bg-white p-4">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <h3 className="truncate font-black text-slate-950">{user.name}</h3>
+                        <div className="mt-1 grid gap-0.5">
+                          {user.username && (
+                            <p className="flex items-center gap-1.5 text-xs font-bold text-cyan-600">
+                              <User size={12} /> @{user.username}
                             </p>
-                          </td>
-                          <td className="px-4 py-4 font-semibold text-slate-600">{user.role}</td>
-                          <td className="px-4 py-4">
-                            <span className={`rounded-full px-3 py-1 text-xs font-black ${user.status === "ACTIVE" ? "bg-emerald-50 text-emerald-700" : "bg-slate-100 text-slate-500"}`}>
-                              {user.status === "ACTIVE" ? "Aktif" : "Nonaktif"}
-                            </span>
-                          </td>
-                          <td className="px-4 py-4">
-                            <div className="flex gap-2">
-                              <Button variant="secondary" onClick={() => setUserDetailModal(user)} className="h-9 px-3">
-                                <User size={15} />
-                                Lihat
-                              </Button>
-                              <Button variant="secondary" onClick={() => startEditUser(user)} className="h-9 px-3">
-                                <Pencil size={15} />
-                                Edit
-                              </Button>
-                              <Button variant="secondary" onClick={() => void deleteUser(user)} disabled={deletingUserId === user.id} className="h-9 px-3">
-                                <Trash2 size={15} />
-                                {deletingUserId === user.id ? "Hapus..." : "Hapus"}
-                              </Button>
-                            </div>
-                          </td>
-                        </tr>
-                      ))}
-                      {!users.length && (
-                        <tr>
-                          <td colSpan={4} className="px-4 py-10 text-center text-sm font-medium text-slate-500">
-                            Belum ada user.
-                          </td>
-                        </tr>
-                      )}
-                    </tbody>
-                  </table>
-                </div>
-              </Panel>
-            </section>
+                          )}
+                          {!user.email.endsWith(USERNAME_EMAIL_SUFFIX) && (
+                            <p className="flex items-center gap-1.5 truncate text-xs font-medium text-slate-400">
+                              <Mail size={12} /> {user.email}
+                            </p>
+                          )}
+                        </div>
+                      </div>
+                      <span className={`shrink-0 rounded-full px-3 py-1 text-xs font-black ${user.status === "ACTIVE" ? "bg-emerald-50 text-emerald-700" : "bg-slate-100 text-slate-500"}`}>
+                        {user.status === "ACTIVE" ? "Aktif" : "Nonaktif"}
+                      </span>
+                    </div>
+                    <div className="mt-3 flex items-center justify-between gap-3">
+                      <span className="inline-flex items-center gap-1.5 rounded-full bg-slate-100 px-3 py-1 text-xs font-bold text-slate-600">
+                        <ShieldCheck size={12} /> {user.role}
+                      </span>
+                      <div className="flex gap-1.5">
+                        <Button variant="secondary" onClick={() => setUserDetailModal(user)} className="h-8 px-2.5 text-xs">
+                          <User size={13} /> Lihat
+                        </Button>
+                        {canManageUserMenu && (
+                          <>
+                            <Button variant="secondary" onClick={() => startEditUser(user)} className="h-8 px-2.5">
+                              <Pencil size={13} />
+                            </Button>
+                            <Button variant="secondary" onClick={() => void deleteUser(user)} disabled={deletingUserId === user.id} className="h-8 px-2.5">
+                              <Trash2 size={13} />
+                            </Button>
+                          </>
+                        )}
+                      </div>
+                    </div>
+                  </article>
+                ))}
+                {!users.length && (
+                  <div className="rounded-xl border border-dashed border-slate-300 p-8 text-center text-sm text-slate-500">Belum ada user.</div>
+                )}
+              </div>
+
+              {/* Tabel desktop */}
+              <div className="hidden overflow-x-auto rounded-xl border border-slate-200 lg:block">
+                <table className="w-full min-w-[780px] text-left text-sm">
+                  <thead className="bg-slate-50 text-xs font-bold uppercase text-slate-500">
+                    <tr>
+                      <th className="px-4 py-3">Nama</th>
+                      <th className="px-4 py-3">Username</th>
+                      <th className="px-4 py-3">Email</th>
+                      <th className="px-4 py-3">Role</th>
+                      <th className="px-4 py-3">Status</th>
+                      <th className="px-4 py-3">Aksi</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100 bg-white">
+                    {users.map((user) => (
+                      <tr key={user.id} className="hover:bg-slate-50/50">
+                        <td className="px-4 py-3 font-bold text-slate-950">{user.name}</td>
+                        <td className="px-4 py-3">
+                          {user.username
+                            ? <span className="font-bold text-cyan-700">@{user.username}</span>
+                            : <span className="text-slate-300">—</span>}
+                        </td>
+                        <td className="px-4 py-3 text-slate-500">
+                          {user.email.endsWith(USERNAME_EMAIL_SUFFIX)
+                            ? <span className="text-slate-300 italic text-xs">username only</span>
+                            : user.email}
+                        </td>
+                        <td className="px-4 py-3 font-semibold text-slate-600">{user.role}</td>
+                        <td className="px-4 py-3">
+                          <span className={`rounded-full px-3 py-1 text-xs font-black ${user.status === "ACTIVE" ? "bg-emerald-50 text-emerald-700" : "bg-slate-100 text-slate-500"}`}>
+                            {user.status === "ACTIVE" ? "Aktif" : "Nonaktif"}
+                          </span>
+                        </td>
+                        <td className="px-4 py-3">
+                          <div className="flex gap-2">
+                            <Button variant="secondary" onClick={() => setUserDetailModal(user)} className="h-8 px-3 text-xs">
+                              <User size={13} /> Lihat
+                            </Button>
+                            {canManageUserMenu && (
+                              <>
+                                <Button variant="secondary" onClick={() => startEditUser(user)} className="h-8 px-3 text-xs">
+                                  <Pencil size={13} /> Edit
+                                </Button>
+                                <Button variant="secondary" onClick={() => void deleteUser(user)} disabled={deletingUserId === user.id} className="h-8 px-3 text-xs">
+                                  <Trash2 size={13} /> {deletingUserId === user.id ? "..." : "Hapus"}
+                                </Button>
+                              </>
+                            )}
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                    {!users.length && (
+                      <tr>
+                        <td colSpan={6} className="px-4 py-10 text-center text-sm text-slate-500">Belum ada user.</td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </Panel>
           )}
 
           {(activeView === "dashboard" || activeView === "finance") && (
@@ -4598,6 +4545,90 @@ export default function ThriftHatInventoryApp() {
         </main>
       </div>
 
+      {/* Modal Tambah / Edit User */}
+      {addUserModalOpen && (
+        <div className="fixed inset-0 z-[60] grid place-items-center bg-slate-950/60 p-4 backdrop-blur-sm" onClick={resetUserForm}>
+          <motion.div
+            initial={{ opacity: 0, scale: 0.95 }}
+            animate={{ opacity: 1, scale: 1 }}
+            className="w-full max-w-md rounded-2xl border border-slate-200 bg-white shadow-2xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between gap-3 border-b border-slate-100 px-6 py-4">
+              <h2 className="text-lg font-black text-slate-950">
+                {editingUserId ? "Edit User" : "Tambah User Baru"}
+              </h2>
+              <button type="button" onClick={resetUserForm} className="grid h-8 w-8 place-items-center rounded-lg text-slate-400 hover:bg-slate-100 hover:text-slate-700">
+                ✕
+              </button>
+            </div>
+
+            <div className="grid gap-4 p-6">
+              <label className="grid gap-2 text-sm font-semibold text-slate-700">
+                Nama lengkap
+                <input value={userForm.name} onChange={(e) => updateUserForm("name", e.target.value)} placeholder="Nama staff"
+                  className="h-11 rounded-lg border border-slate-200 bg-white px-3 text-sm font-medium text-slate-950 outline-none transition placeholder:text-slate-400 focus:border-cyan-500 focus:ring-4 focus:ring-cyan-100" />
+              </label>
+
+              <div className="grid gap-4 sm:grid-cols-2">
+                <label className="grid gap-2 text-sm font-semibold text-slate-700">
+                  Username
+                  <input value={userForm.username} onChange={(e) => updateUserForm("username", e.target.value.toLowerCase().replace(/[^a-z0-9._-]/g, ""))}
+                    placeholder="kasir1" autoComplete="off"
+                    className="h-11 rounded-lg border border-slate-200 bg-white px-3 text-sm font-medium text-slate-950 outline-none transition placeholder:text-slate-400 focus:border-cyan-500 focus:ring-4 focus:ring-cyan-100" />
+                  {userForm.username && <p className="text-xs text-slate-400">Login: <b>@{userForm.username}</b></p>}
+                </label>
+                <label className="grid gap-2 text-sm font-semibold text-slate-700">
+                  Email <span className="font-normal text-slate-400">(opsional)</span>
+                  <input value={userForm.email} onChange={(e) => updateUserForm("email", e.target.value)} placeholder="staff@email.com" type="email"
+                    className="h-11 rounded-lg border border-slate-200 bg-white px-3 text-sm font-medium text-slate-950 outline-none transition placeholder:text-slate-400 focus:border-cyan-500 focus:ring-4 focus:ring-cyan-100" />
+                </label>
+              </div>
+
+              <label className="grid gap-2 text-sm font-semibold text-slate-700">
+                Password {editingUserId ? <span className="font-normal text-slate-400">(opsional, kosongkan jika tidak ganti)</span> : ""}
+                <input value={userForm.password} onChange={(e) => updateUserForm("password", e.target.value)}
+                  placeholder={editingUserId ? "Kosongkan jika tidak diganti" : "Minimal 6 karakter"} type="password"
+                  className="h-11 rounded-lg border border-slate-200 bg-white px-3 text-sm font-medium text-slate-950 outline-none transition placeholder:text-slate-400 focus:border-cyan-500 focus:ring-4 focus:ring-cyan-100" />
+              </label>
+
+              <div className="grid gap-4 sm:grid-cols-2">
+                <label className="grid gap-2 text-sm font-semibold text-slate-700">
+                  Role
+                  <select value={userForm.role} onChange={(e) => updateUserForm("role", e.target.value)}
+                    className="h-11 rounded-lg border border-slate-200 bg-white px-3 text-sm font-medium text-slate-950 outline-none transition focus:border-cyan-500 focus:ring-4 focus:ring-cyan-100">
+                    <option>Owner</option>
+                    <option>Admin</option>
+                    <option>Staff</option>
+                    <option>Kasir</option>
+                  </select>
+                </label>
+                <label className="grid gap-2 text-sm font-semibold text-slate-700">
+                  Status
+                  <select value={userForm.status} onChange={(e) => updateUserForm("status", e.target.value as ManagedUserStatus)}
+                    className="h-11 rounded-lg border border-slate-200 bg-white px-3 text-sm font-medium text-slate-950 outline-none transition focus:border-cyan-500 focus:ring-4 focus:ring-cyan-100">
+                    <option value="ACTIVE">Aktif</option>
+                    <option value="INACTIVE">Nonaktif</option>
+                  </select>
+                </label>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-3 border-t border-slate-100 px-6 py-4">
+              <Button variant="secondary" onClick={resetUserForm}>Batal</Button>
+              <Button
+                onClick={() => void saveUser()}
+                disabled={savingAction === "user" || !userForm.name.trim() || (!userForm.email.trim() && !userForm.username.trim()) || (!editingUserId && userForm.password.length < 6)}
+                className="bg-blue-600 hover:bg-blue-500"
+              >
+                <UserPlus size={16} />
+                {savingAction === "user" ? "Menyimpan..." : editingUserId ? "Simpan" : "Tambah"}
+              </Button>
+            </div>
+          </motion.div>
+        </div>
+      )}
+
       {/* Modal Detail User */}
       {userDetailModal && (
         <div className="fixed inset-0 z-[60] grid place-items-center bg-slate-950/60 p-4 backdrop-blur-sm" onClick={() => setUserDetailModal(null)}>
@@ -4629,11 +4660,18 @@ export default function ThriftHatInventoryApp() {
                 </span>
               </div>
 
+              {userDetailModal.username && (
+                <div className="flex items-center justify-between gap-3">
+                  <span className="text-xs font-bold text-slate-400 uppercase">Username</span>
+                  <span className="font-bold text-cyan-700">@{userDetailModal.username}</span>
+                </div>
+              )}
+
               <div className="flex items-start justify-between gap-3">
-                <span className="text-xs font-bold text-slate-400 uppercase">Login</span>
+                <span className="text-xs font-bold text-slate-400 uppercase">Email</span>
                 <span className="text-right text-sm font-bold text-slate-700 break-all">
                   {userDetailModal.email.endsWith(USERNAME_EMAIL_SUFFIX)
-                    ? <>Username: <span className="text-cyan-600">@{userDetailModal.email.replace(USERNAME_EMAIL_SUFFIX, "")}</span></>
+                    ? <span className="italic text-slate-400 text-xs">username only</span>
                     : userDetailModal.email}
                 </span>
               </div>

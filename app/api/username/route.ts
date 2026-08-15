@@ -3,17 +3,12 @@ import { createClient } from "@supabase/supabase-js";
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const supabaseServiceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
-const USERNAME_EMAIL_SUFFIX = "@archanacaps.internal";
-
 /**
  * POST /api/username
  * Body: { username: string }
- * Returns: { email: string } — email yang harus dipakai untuk signInWithPassword
- *
- * Strategi pencarian:
- * 1. Coba email internal (username@archanacaps.internal) — user baru yang dibuat dengan username
- * 2. Cari di user_metadata.username — user yang punya username tersimpan di metadata
- * Endpoint ini TIDAK butuh auth karena hanya mengembalikan email (bukan data sensitif).
+ * Returns: { email: string }
+ * Lookup username dari tabel user_profiles, kembalikan email Supabase Auth yang terkait.
+ * Endpoint ini tidak butuh auth (hanya mengembalikan email untuk keperluan login).
  */
 export async function POST(request: Request) {
   const body = await request.json().catch(() => ({}));
@@ -22,7 +17,7 @@ export async function POST(request: Request) {
     .toLowerCase()
     .replace(/[^a-z0-9._-]/g, "");
 
-  if (!username || username.length < 1) {
+  if (!username) {
     return Response.json({ error: "Username tidak valid." }, { status: 400 });
   }
 
@@ -34,29 +29,26 @@ export async function POST(request: Request) {
     auth: { persistSession: false, autoRefreshToken: false },
   });
 
-  // Strategi 1: email internal langsung (user dibuat dengan username saja)
-  // Strategi 2: cari di seluruh user yang punya user_metadata.username cocok
-  // Keduanya digabung dalam satu scan
-  const internalEmail = `${username}${USERNAME_EMAIL_SUFFIX}`;
-  let page = 1;
-  while (page <= 10) {
-    const { data, error } = await adminClient.auth.admin.listUsers({ page, perPage: 100 });
-    if (error || !data?.users?.length) break;
+  // Cari di tabel user_profiles berdasarkan username
+  const { data: profile, error } = await adminClient
+    .from("user_profiles")
+    .select("auth_user_id")
+    .eq("username", username)
+    .maybeSingle();
 
-    // Cek email internal atau metadata username
-    const match = data.users.find(
-      (u) =>
-        u.app_metadata?.status !== "INACTIVE" &&
-        (u.email === internalEmail ||
-          String(u.user_metadata?.username ?? "").toLowerCase() === username)
-    );
-    if (match?.email) {
-      return Response.json({ email: match.email });
-    }
-
-    if (data.users.length < 100) break;
-    page++;
+  if (error || !profile) {
+    return Response.json({ error: "Username tidak ditemukan." }, { status: 404 });
   }
 
-  return Response.json({ error: "Username tidak ditemukan." }, { status: 404 });
+  // Ambil email dari Supabase Auth
+  const { data: userData, error: userError } = await adminClient.auth.admin.getUserById(profile.auth_user_id);
+  if (userError || !userData?.user?.email) {
+    return Response.json({ error: "User tidak ditemukan." }, { status: 404 });
+  }
+
+  if (userData.user.app_metadata?.status === "INACTIVE") {
+    return Response.json({ error: "User ini sedang nonaktif." }, { status: 403 });
+  }
+
+  return Response.json({ email: userData.user.email });
 }
