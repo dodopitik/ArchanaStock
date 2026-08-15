@@ -4694,12 +4694,11 @@ export default function ThriftHatInventoryApp() {
       )}
 
       {logoutConfirmOpen && (
-        <div className="fixed inset-0 z-[60] overflow-y-auto bg-slate-950/60 backdrop-blur-sm">
-          <div className="flex min-h-full items-end justify-center p-0 sm:items-center sm:p-4">
+        <div className="fixed inset-0 z-[60] grid place-items-center bg-slate-950/60 p-4 backdrop-blur-sm">
           <motion.div
-            initial={{ opacity: 0, y: 40 }}
-            animate={{ opacity: 1, y: 0 }}
-            className="w-full max-w-sm overflow-hidden rounded-t-2xl bg-white shadow-2xl sm:rounded-2xl"
+            initial={{ opacity: 0, y: 14, scale: 0.96 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            className="w-full max-w-sm overflow-hidden rounded-2xl bg-white shadow-2xl"
           >
             <div className="bg-slate-950 p-5 text-white">
               <div className="flex items-start gap-4">
@@ -4730,14 +4729,12 @@ export default function ThriftHatInventoryApp() {
               </div>
             </div>
           </motion.div>
-          </div>
         </div>
       )}
 
       {soldModal && (
-        <div className="fixed inset-0 z-50 overflow-y-auto bg-slate-950/50 backdrop-blur-sm">
-          <div className="flex min-h-full items-end justify-center p-0 sm:items-center sm:p-4">
-          <motion.div initial={{ opacity: 0, y: 40 }} animate={{ opacity: 1, y: 0 }} className="w-full max-w-md rounded-t-2xl bg-white p-5 shadow-2xl sm:rounded-2xl">
+        <div className="fixed inset-0 z-50 grid place-items-center bg-slate-950/50 p-4 backdrop-blur-sm">
+          <motion.div initial={{ opacity: 0, scale: 0.97 }} animate={{ opacity: 1, scale: 1 }} className="w-full max-w-md rounded-2xl bg-white p-5 shadow-2xl">
             <div className="flex gap-4">
               <Image src={soldModal.image || defaultImage} alt={soldModal.name} width={160} height={160} unoptimized={Boolean(soldModal.image?.startsWith("data:"))} className="h-20 w-20 shrink-0 rounded-xl object-cover" />
               <div className="min-w-0">
@@ -4776,14 +4773,12 @@ export default function ThriftHatInventoryApp() {
               </div>
             </div>
           </motion.div>
-          </div>
         </div>
       )}
 
       {reportEditModal && (
-        <div className="fixed inset-0 z-50 overflow-y-auto bg-slate-950/50 backdrop-blur-sm">
-          <div className="flex min-h-full items-end justify-center p-0 sm:items-center sm:p-4">
-          <motion.div initial={{ opacity: 0, y: 40 }} animate={{ opacity: 1, y: 0 }} className="w-full max-w-md rounded-t-2xl bg-white p-5 shadow-2xl sm:rounded-2xl">
+        <div className="fixed inset-0 z-50 grid place-items-center bg-slate-950/50 p-4 backdrop-blur-sm">
+          <motion.div initial={{ opacity: 0, scale: 0.97 }} animate={{ opacity: 1, scale: 1 }} className="w-full max-w-md rounded-2xl bg-white p-5 shadow-2xl">
             <div className="flex gap-4">
               <Image src={reportEditModal.image || defaultImage} alt={reportEditModal.name} width={160} height={160} unoptimized={Boolean(reportEditModal.image?.startsWith("data:"))} className="h-20 w-20 shrink-0 rounded-xl object-cover" />
               <div className="min-w-0">
@@ -4830,14 +4825,12 @@ export default function ThriftHatInventoryApp() {
               </div>
             </div>
           </motion.div>
-          </div>
         </div>
       )}
 
       {editModal && (
-        <div className="fixed inset-0 z-50 overflow-y-auto bg-slate-950/50 backdrop-blur-sm">
-          <div className="flex min-h-full items-end justify-center p-0 sm:items-center sm:p-4">
-          <motion.div initial={{ opacity: 0, y: 40 }} animate={{ opacity: 1, y: 0 }} className="grid w-full max-w-lg gap-4 rounded-t-2xl bg-white p-5 shadow-2xl sm:rounded-2xl">
+        <div className="fixed inset-0 z-50 grid place-items-center overflow-y-auto bg-slate-950/50 p-4 backdrop-blur-sm">
+          <motion.div initial={{ opacity: 0, scale: 0.97 }} animate={{ opacity: 1, scale: 1 }} className="grid w-full max-w-lg gap-4 rounded-2xl bg-white p-5 shadow-2xl">
             <div>
               <h3 className="text-xl font-black text-slate-950">Edit Stok Topi</h3>
               <p className="mt-1 text-sm font-medium text-slate-500">{editModal.code}</p>
@@ -4922,14 +4915,12 @@ export default function ThriftHatInventoryApp() {
               </Button>
             </div>
           </motion.div>
-          </div>
         </div>
       )}
 
       {cameraOpen && (
-        <div className="fixed inset-0 z-50 overflow-y-auto bg-slate-950/70 backdrop-blur-sm">
-          <div className="flex min-h-full items-end justify-center p-0 sm:items-center sm:p-4">
-          <motion.div initial={{ opacity: 0, y: 40 }} animate={{ opacity: 1, y: 0 }} className="grid w-full max-w-lg gap-4 rounded-t-2xl bg-white p-4 shadow-2xl sm:rounded-2xl">
+        <div className="fixed inset-0 z-50 grid place-items-center bg-slate-950/70 p-4 backdrop-blur-sm">
+          <motion.div initial={{ opacity: 0, scale: 0.97 }} animate={{ opacity: 1, scale: 1 }} className="grid w-full max-w-lg gap-4 rounded-2xl bg-white p-4 shadow-2xl">
             <div className="flex items-start justify-between gap-4">
               <div>
                 <h3 className="text-lg font-black text-slate-950">Ambil Foto Realtime</h3>
@@ -4954,7 +4945,6 @@ export default function ThriftHatInventoryApp() {
               </Button>
             </div>
           </motion.div>
-          </div>
         </div>
       )}
     </div>
