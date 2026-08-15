@@ -4547,162 +4547,159 @@ export default function ThriftHatInventoryApp() {
 
       {/* Modal Tambah / Edit User */}
       {addUserModalOpen && (
-        <div className="fixed inset-0 z-[60] grid place-items-center bg-slate-950/60 p-4 backdrop-blur-sm" onClick={resetUserForm}>
-          <motion.div
-            initial={{ opacity: 0, scale: 0.95 }}
-            animate={{ opacity: 1, scale: 1 }}
-            className="w-full max-w-md rounded-2xl border border-slate-200 bg-white shadow-2xl"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="flex items-center justify-between gap-3 border-b border-slate-100 px-6 py-4">
-              <h2 className="text-lg font-black text-slate-950">
-                {editingUserId ? "Edit User" : "Tambah User Baru"}
-              </h2>
-              <button type="button" onClick={resetUserForm} className="grid h-8 w-8 place-items-center rounded-lg text-slate-400 hover:bg-slate-100 hover:text-slate-700">
-                ✕
-              </button>
-            </div>
-
-            <div className="grid gap-4 p-6">
-              <label className="grid gap-2 text-sm font-semibold text-slate-700">
-                Nama lengkap
-                <input value={userForm.name} onChange={(e) => updateUserForm("name", e.target.value)} placeholder="Nama staff"
-                  className="h-11 rounded-lg border border-slate-200 bg-white px-3 text-sm font-medium text-slate-950 outline-none transition placeholder:text-slate-400 focus:border-cyan-500 focus:ring-4 focus:ring-cyan-100" />
-              </label>
-
-              <div className="grid gap-4 sm:grid-cols-2">
-                <label className="grid gap-2 text-sm font-semibold text-slate-700">
-                  Username
-                  <input value={userForm.username} onChange={(e) => updateUserForm("username", e.target.value.toLowerCase().replace(/[^a-z0-9._-]/g, ""))}
-                    placeholder="kasir1" autoComplete="off"
-                    className="h-11 rounded-lg border border-slate-200 bg-white px-3 text-sm font-medium text-slate-950 outline-none transition placeholder:text-slate-400 focus:border-cyan-500 focus:ring-4 focus:ring-cyan-100" />
-                  {userForm.username && <p className="text-xs text-slate-400">Login: <b>@{userForm.username}</b></p>}
-                </label>
-                <label className="grid gap-2 text-sm font-semibold text-slate-700">
-                  Email <span className="font-normal text-slate-400">(opsional)</span>
-                  <input value={userForm.email} onChange={(e) => updateUserForm("email", e.target.value)} placeholder="staff@email.com" type="email"
-                    className="h-11 rounded-lg border border-slate-200 bg-white px-3 text-sm font-medium text-slate-950 outline-none transition placeholder:text-slate-400 focus:border-cyan-500 focus:ring-4 focus:ring-cyan-100" />
-                </label>
+        <div className="fixed inset-0 z-[60] overflow-y-auto bg-slate-950/60 backdrop-blur-sm" onClick={resetUserForm}>
+          <div className="flex min-h-full items-end justify-center p-0 sm:items-center sm:p-4">
+            <motion.div
+              initial={{ opacity: 0, y: 40 }}
+              animate={{ opacity: 1, y: 0 }}
+              className="w-full max-w-md rounded-t-2xl border border-slate-200 bg-white shadow-2xl sm:rounded-2xl"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="flex items-center justify-between gap-3 border-b border-slate-100 px-5 py-4">
+                <h2 className="text-base font-black text-slate-950">
+                  {editingUserId ? "Edit User" : "Tambah User Baru"}
+                </h2>
+                <button type="button" onClick={resetUserForm} className="grid h-8 w-8 place-items-center rounded-lg text-slate-400 hover:bg-slate-100 hover:text-slate-700">
+                  ✕
+                </button>
               </div>
 
-              <label className="grid gap-2 text-sm font-semibold text-slate-700">
-                Password {editingUserId ? <span className="font-normal text-slate-400">(opsional, kosongkan jika tidak ganti)</span> : ""}
-                <input value={userForm.password} onChange={(e) => updateUserForm("password", e.target.value)}
-                  placeholder={editingUserId ? "Kosongkan jika tidak diganti" : "Minimal 6 karakter"} type="password"
-                  className="h-11 rounded-lg border border-slate-200 bg-white px-3 text-sm font-medium text-slate-950 outline-none transition placeholder:text-slate-400 focus:border-cyan-500 focus:ring-4 focus:ring-cyan-100" />
-              </label>
+              <div className="grid gap-4 p-5">
+                <label className="grid gap-2 text-sm font-semibold text-slate-700">
+                  Nama lengkap
+                  <input value={userForm.name} onChange={(e) => updateUserForm("name", e.target.value)} placeholder="Nama staff"
+                    className="h-11 rounded-lg border border-slate-200 bg-white px-3 text-sm font-medium text-slate-950 outline-none transition placeholder:text-slate-400 focus:border-cyan-500 focus:ring-4 focus:ring-cyan-100" />
+                </label>
 
-              <div className="grid gap-4 sm:grid-cols-2">
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <label className="grid gap-2 text-sm font-semibold text-slate-700">
+                    Username
+                    <input value={userForm.username} onChange={(e) => updateUserForm("username", e.target.value.toLowerCase().replace(/[^a-z0-9._-]/g, ""))}
+                      placeholder="kasir1" autoComplete="off"
+                      className="h-11 rounded-lg border border-slate-200 bg-white px-3 text-sm font-medium text-slate-950 outline-none transition placeholder:text-slate-400 focus:border-cyan-500 focus:ring-4 focus:ring-cyan-100" />
+                    {userForm.username && <p className="text-xs text-slate-400">Login: <b>@{userForm.username}</b></p>}
+                  </label>
+                  <label className="grid gap-2 text-sm font-semibold text-slate-700">
+                    Email <span className="font-normal text-slate-400">(opsional)</span>
+                    <input value={userForm.email} onChange={(e) => updateUserForm("email", e.target.value)} placeholder="staff@email.com" type="email"
+                      className="h-11 rounded-lg border border-slate-200 bg-white px-3 text-sm font-medium text-slate-950 outline-none transition placeholder:text-slate-400 focus:border-cyan-500 focus:ring-4 focus:ring-cyan-100" />
+                  </label>
+                </div>
+
                 <label className="grid gap-2 text-sm font-semibold text-slate-700">
-                  Role
-                  <select value={userForm.role} onChange={(e) => updateUserForm("role", e.target.value)}
-                    className="h-11 rounded-lg border border-slate-200 bg-white px-3 text-sm font-medium text-slate-950 outline-none transition focus:border-cyan-500 focus:ring-4 focus:ring-cyan-100">
-                    <option>Owner</option>
-                    <option>Admin</option>
-                    <option>Staff</option>
-                    <option>Kasir</option>
-                  </select>
+                  Password {editingUserId ? <span className="font-normal text-slate-400">(kosongkan jika tidak ganti)</span> : ""}
+                  <input value={userForm.password} onChange={(e) => updateUserForm("password", e.target.value)}
+                    placeholder={editingUserId ? "Kosongkan jika tidak diganti" : "Minimal 6 karakter"} type="password"
+                    className="h-11 rounded-lg border border-slate-200 bg-white px-3 text-sm font-medium text-slate-950 outline-none transition placeholder:text-slate-400 focus:border-cyan-500 focus:ring-4 focus:ring-cyan-100" />
                 </label>
-                <label className="grid gap-2 text-sm font-semibold text-slate-700">
-                  Status
-                  <select value={userForm.status} onChange={(e) => updateUserForm("status", e.target.value as ManagedUserStatus)}
-                    className="h-11 rounded-lg border border-slate-200 bg-white px-3 text-sm font-medium text-slate-950 outline-none transition focus:border-cyan-500 focus:ring-4 focus:ring-cyan-100">
-                    <option value="ACTIVE">Aktif</option>
-                    <option value="INACTIVE">Nonaktif</option>
-                  </select>
-                </label>
+
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <label className="grid gap-2 text-sm font-semibold text-slate-700">
+                    Role
+                    <select value={userForm.role} onChange={(e) => updateUserForm("role", e.target.value)}
+                      className="h-11 rounded-lg border border-slate-200 bg-white px-3 text-sm font-medium text-slate-950 outline-none transition focus:border-cyan-500 focus:ring-4 focus:ring-cyan-100">
+                      <option>Owner</option>
+                      <option>Admin</option>
+                      <option>Staff</option>
+                      <option>Kasir</option>
+                    </select>
+                  </label>
+                  <label className="grid gap-2 text-sm font-semibold text-slate-700">
+                    Status
+                    <select value={userForm.status} onChange={(e) => updateUserForm("status", e.target.value as ManagedUserStatus)}
+                      className="h-11 rounded-lg border border-slate-200 bg-white px-3 text-sm font-medium text-slate-950 outline-none transition focus:border-cyan-500 focus:ring-4 focus:ring-cyan-100">
+                      <option value="ACTIVE">Aktif</option>
+                      <option value="INACTIVE">Nonaktif</option>
+                    </select>
+                  </label>
+                </div>
               </div>
-            </div>
 
-            <div className="grid grid-cols-2 gap-3 border-t border-slate-100 px-6 py-4">
-              <Button variant="secondary" onClick={resetUserForm}>Batal</Button>
-              <Button
-                onClick={() => void saveUser()}
-                disabled={savingAction === "user" || !userForm.name.trim() || (!userForm.email.trim() && !userForm.username.trim()) || (!editingUserId && userForm.password.length < 6)}
-                className="bg-blue-600 hover:bg-blue-500"
-              >
-                <UserPlus size={16} />
-                {savingAction === "user" ? "Menyimpan..." : editingUserId ? "Simpan" : "Tambah"}
-              </Button>
-            </div>
-          </motion.div>
+              <div className="grid grid-cols-2 gap-3 border-t border-slate-100 px-5 py-4">
+                <Button variant="secondary" onClick={resetUserForm}>Batal</Button>
+                <Button
+                  onClick={() => void saveUser()}
+                  disabled={savingAction === "user" || !userForm.name.trim() || (!userForm.email.trim() && !userForm.username.trim()) || (!editingUserId && userForm.password.length < 6)}
+                  className="bg-blue-600 hover:bg-blue-500"
+                >
+                  <UserPlus size={16} />
+                  {savingAction === "user" ? "Menyimpan..." : editingUserId ? "Simpan" : "Tambah"}
+                </Button>
+              </div>
+            </motion.div>
+          </div>
         </div>
       )}
 
       {/* Modal Detail User */}
       {userDetailModal && (
-        <div className="fixed inset-0 z-[60] grid place-items-center bg-slate-950/60 p-4 backdrop-blur-sm" onClick={() => setUserDetailModal(null)}>
-          <motion.div
-            initial={{ opacity: 0, scale: 0.95 }}
-            animate={{ opacity: 1, scale: 1 }}
-            className="w-full max-w-sm rounded-2xl border border-slate-200 bg-white p-6 shadow-2xl"
-            onClick={(e) => e.stopPropagation()}
-          >
-            {/* Avatar */}
-            <div className="mb-4 flex flex-col items-center gap-3">
-              <div className="grid h-16 w-16 place-items-center rounded-2xl bg-slate-100 text-slate-600">
-                <User size={32} />
-              </div>
-              <div className="text-center">
-                <h2 className="text-xl font-black text-slate-950">{userDetailModal.name}</h2>
-                <span className={`mt-1 inline-block rounded-full px-3 py-0.5 text-xs font-black ${userDetailModal.status === "ACTIVE" ? "bg-emerald-50 text-emerald-700" : "bg-slate-100 text-slate-500"}`}>
-                  {userDetailModal.status === "ACTIVE" ? "Aktif" : "Nonaktif"}
-                </span>
-              </div>
-            </div>
-
-            <div className="grid gap-3 rounded-xl border border-slate-100 bg-slate-50 p-4">
-              <div className="flex items-center justify-between gap-3">
-                <span className="text-xs font-bold text-slate-400 uppercase">Role</span>
-                <span className="inline-flex items-center gap-1.5 rounded-full bg-slate-100 px-3 py-1 text-xs font-black text-slate-700">
-                  <ShieldCheck size={13} />
-                  {userDetailModal.role}
-                </span>
-              </div>
-
-              {userDetailModal.username && (
-                <div className="flex items-center justify-between gap-3">
-                  <span className="text-xs font-bold text-slate-400 uppercase">Username</span>
-                  <span className="font-bold text-cyan-700">@{userDetailModal.username}</span>
+        <div className="fixed inset-0 z-[60] overflow-y-auto bg-slate-950/60 backdrop-blur-sm" onClick={() => setUserDetailModal(null)}>
+          <div className="flex min-h-full items-end justify-center p-0 sm:items-center sm:p-4">
+            <motion.div
+              initial={{ opacity: 0, y: 40 }}
+              animate={{ opacity: 1, y: 0 }}
+              className="w-full max-w-sm rounded-t-2xl border border-slate-200 bg-white p-5 shadow-2xl sm:rounded-2xl"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="mb-4 flex flex-col items-center gap-3">
+                <div className="grid h-14 w-14 place-items-center rounded-2xl bg-slate-100 text-slate-600">
+                  <User size={28} />
                 </div>
-              )}
-
-              <div className="flex items-start justify-between gap-3">
-                <span className="text-xs font-bold text-slate-400 uppercase">Email</span>
-                <span className="text-right text-sm font-bold text-slate-700 break-all">
-                  {userDetailModal.email.endsWith(USERNAME_EMAIL_SUFFIX)
-                    ? <span className="italic text-slate-400 text-xs">username only</span>
-                    : userDetailModal.email}
-                </span>
+                <div className="text-center">
+                  <h2 className="text-lg font-black text-slate-950">{userDetailModal.name}</h2>
+                  <span className={`mt-1 inline-block rounded-full px-3 py-0.5 text-xs font-black ${userDetailModal.status === "ACTIVE" ? "bg-emerald-50 text-emerald-700" : "bg-slate-100 text-slate-500"}`}>
+                    {userDetailModal.status === "ACTIVE" ? "Aktif" : "Nonaktif"}
+                  </span>
+                </div>
               </div>
 
-              <div className="flex items-center justify-between gap-3">
-                <span className="text-xs font-bold text-slate-400 uppercase">Bergabung</span>
-                <span className="text-sm font-bold text-slate-700">
-                  {new Intl.DateTimeFormat("id-ID", { day: "numeric", month: "long", year: "numeric" }).format(new Date(userDetailModal.createdAt))}
-                </span>
+              <div className="grid gap-3 rounded-xl border border-slate-100 bg-slate-50 p-4">
+                <div className="flex items-center justify-between gap-3">
+                  <span className="text-xs font-bold text-slate-400 uppercase">Role</span>
+                  <span className="inline-flex items-center gap-1.5 rounded-full bg-slate-100 px-3 py-1 text-xs font-black text-slate-700">
+                    <ShieldCheck size={13} />{userDetailModal.role}
+                  </span>
+                </div>
+                {userDetailModal.username && (
+                  <div className="flex items-center justify-between gap-3">
+                    <span className="text-xs font-bold text-slate-400 uppercase">Username</span>
+                    <span className="font-bold text-cyan-700">@{userDetailModal.username}</span>
+                  </div>
+                )}
+                <div className="flex items-start justify-between gap-3">
+                  <span className="text-xs font-bold text-slate-400 uppercase">Email</span>
+                  <span className="text-right text-sm font-bold text-slate-700 break-all">
+                    {userDetailModal.email.endsWith(USERNAME_EMAIL_SUFFIX)
+                      ? <span className="italic text-slate-400 text-xs">username only</span>
+                      : userDetailModal.email}
+                  </span>
+                </div>
+                <div className="flex items-center justify-between gap-3">
+                  <span className="text-xs font-bold text-slate-400 uppercase">Bergabung</span>
+                  <span className="text-sm font-bold text-slate-700">
+                    {new Intl.DateTimeFormat("id-ID", { day: "numeric", month: "long", year: "numeric" }).format(new Date(userDetailModal.createdAt))}
+                  </span>
+                </div>
               </div>
-            </div>
 
-            <div className="mt-4 grid grid-cols-2 gap-3">
-              <Button variant="secondary" onClick={() => { setUserDetailModal(null); startEditUser(userDetailModal); }}>
-                <Pencil size={15} />
-                Edit
-              </Button>
-              <Button onClick={() => setUserDetailModal(null)}>
-                Tutup
-              </Button>
-            </div>
-          </motion.div>
+              <div className="mt-4 grid grid-cols-2 gap-3">
+                <Button variant="secondary" onClick={() => { setUserDetailModal(null); startEditUser(userDetailModal); }}>
+                  <Pencil size={15} /> Edit
+                </Button>
+                <Button onClick={() => setUserDetailModal(null)}>Tutup</Button>
+              </div>
+            </motion.div>
+          </div>
         </div>
       )}
 
       {logoutConfirmOpen && (
-        <div className="fixed inset-0 z-[60] grid place-items-center bg-slate-950/60 p-4 backdrop-blur-sm">
+        <div className="fixed inset-0 z-[60] overflow-y-auto bg-slate-950/60 backdrop-blur-sm">
+          <div className="flex min-h-full items-end justify-center p-0 sm:items-center sm:p-4">
           <motion.div
-            initial={{ opacity: 0, y: 14, scale: 0.96 }}
-            animate={{ opacity: 1, y: 0, scale: 1 }}
-            className="w-full max-w-sm overflow-hidden rounded-2xl bg-white shadow-2xl"
+            initial={{ opacity: 0, y: 40 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="w-full max-w-sm overflow-hidden rounded-t-2xl bg-white shadow-2xl sm:rounded-2xl"
           >
             <div className="bg-slate-950 p-5 text-white">
               <div className="flex items-start gap-4">
@@ -4733,12 +4730,14 @@ export default function ThriftHatInventoryApp() {
               </div>
             </div>
           </motion.div>
+          </div>
         </div>
       )}
 
       {soldModal && (
-        <div className="fixed inset-0 z-50 grid place-items-center bg-slate-950/50 p-4 backdrop-blur-sm">
-          <motion.div initial={{ opacity: 0, scale: 0.97 }} animate={{ opacity: 1, scale: 1 }} className="w-full max-w-md rounded-2xl bg-white p-5 shadow-2xl">
+        <div className="fixed inset-0 z-50 overflow-y-auto bg-slate-950/50 backdrop-blur-sm">
+          <div className="flex min-h-full items-end justify-center p-0 sm:items-center sm:p-4">
+          <motion.div initial={{ opacity: 0, y: 40 }} animate={{ opacity: 1, y: 0 }} className="w-full max-w-md rounded-t-2xl bg-white p-5 shadow-2xl sm:rounded-2xl">
             <div className="flex gap-4">
               <Image src={soldModal.image || defaultImage} alt={soldModal.name} width={160} height={160} unoptimized={Boolean(soldModal.image?.startsWith("data:"))} className="h-20 w-20 shrink-0 rounded-xl object-cover" />
               <div className="min-w-0">
@@ -4777,12 +4776,14 @@ export default function ThriftHatInventoryApp() {
               </div>
             </div>
           </motion.div>
+          </div>
         </div>
       )}
 
       {reportEditModal && (
-        <div className="fixed inset-0 z-50 grid place-items-center bg-slate-950/50 p-4 backdrop-blur-sm">
-          <motion.div initial={{ opacity: 0, scale: 0.97 }} animate={{ opacity: 1, scale: 1 }} className="w-full max-w-md rounded-2xl bg-white p-5 shadow-2xl">
+        <div className="fixed inset-0 z-50 overflow-y-auto bg-slate-950/50 backdrop-blur-sm">
+          <div className="flex min-h-full items-end justify-center p-0 sm:items-center sm:p-4">
+          <motion.div initial={{ opacity: 0, y: 40 }} animate={{ opacity: 1, y: 0 }} className="w-full max-w-md rounded-t-2xl bg-white p-5 shadow-2xl sm:rounded-2xl">
             <div className="flex gap-4">
               <Image src={reportEditModal.image || defaultImage} alt={reportEditModal.name} width={160} height={160} unoptimized={Boolean(reportEditModal.image?.startsWith("data:"))} className="h-20 w-20 shrink-0 rounded-xl object-cover" />
               <div className="min-w-0">
@@ -4829,12 +4830,14 @@ export default function ThriftHatInventoryApp() {
               </div>
             </div>
           </motion.div>
+          </div>
         </div>
       )}
 
       {editModal && (
-        <div className="fixed inset-0 z-50 grid place-items-center overflow-y-auto bg-slate-950/50 p-4 backdrop-blur-sm">
-          <motion.div initial={{ opacity: 0, scale: 0.97 }} animate={{ opacity: 1, scale: 1 }} className="grid w-full max-w-lg gap-4 rounded-2xl bg-white p-5 shadow-2xl">
+        <div className="fixed inset-0 z-50 overflow-y-auto bg-slate-950/50 backdrop-blur-sm">
+          <div className="flex min-h-full items-end justify-center p-0 sm:items-center sm:p-4">
+          <motion.div initial={{ opacity: 0, y: 40 }} animate={{ opacity: 1, y: 0 }} className="grid w-full max-w-lg gap-4 rounded-t-2xl bg-white p-5 shadow-2xl sm:rounded-2xl">
             <div>
               <h3 className="text-xl font-black text-slate-950">Edit Stok Topi</h3>
               <p className="mt-1 text-sm font-medium text-slate-500">{editModal.code}</p>
@@ -4919,12 +4922,14 @@ export default function ThriftHatInventoryApp() {
               </Button>
             </div>
           </motion.div>
+          </div>
         </div>
       )}
 
       {cameraOpen && (
-        <div className="fixed inset-0 z-50 grid place-items-center bg-slate-950/70 p-4 backdrop-blur-sm">
-          <motion.div initial={{ opacity: 0, scale: 0.97 }} animate={{ opacity: 1, scale: 1 }} className="grid w-full max-w-lg gap-4 rounded-2xl bg-white p-4 shadow-2xl">
+        <div className="fixed inset-0 z-50 overflow-y-auto bg-slate-950/70 backdrop-blur-sm">
+          <div className="flex min-h-full items-end justify-center p-0 sm:items-center sm:p-4">
+          <motion.div initial={{ opacity: 0, y: 40 }} animate={{ opacity: 1, y: 0 }} className="grid w-full max-w-lg gap-4 rounded-t-2xl bg-white p-4 shadow-2xl sm:rounded-2xl">
             <div className="flex items-start justify-between gap-4">
               <div>
                 <h3 className="text-lg font-black text-slate-950">Ambil Foto Realtime</h3>
@@ -4949,6 +4954,7 @@ export default function ThriftHatInventoryApp() {
               </Button>
             </div>
           </motion.div>
+          </div>
         </div>
       )}
     </div>
