@@ -1041,6 +1041,7 @@ export default function ThriftHatInventoryApp() {
   const [savingAction, setSavingAction] = useState<"single" | "bulk" | "sold" | "sold-print" | "edit" | "user" | "report-edit" | "report-cancel" | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [deletingUserId, setDeletingUserId] = useState<string | null>(null);
+  const [userDetailModal, setUserDetailModal] = useState<ManagedUser | null>(null);
   const [cameraOpen, setCameraOpen] = useState(false);
   const [cameraError, setCameraError] = useState("");
   const [cameraReady, setCameraReady] = useState(false);
@@ -1502,8 +1503,34 @@ export default function ThriftHatInventoryApp() {
       return;
     }
 
-    const { email: resolvedEmail } = resolveLoginEmail(email);
-    const result = await supabase.auth.signInWithPassword({ email: resolvedEmail, password });
+    const { isUsername } = resolveLoginEmail(email);
+
+    // Kalau username, lookup email dulu via API sebelum login
+    let loginEmail: string;
+    if (isUsername) {
+      try {
+        const resp = await fetch("/api/username", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ username: email.trim() }),
+        });
+        const data = await resp.json();
+        if (!resp.ok || !data.email) {
+          setMessage(data.error || "Username tidak ditemukan.");
+          setLoading(false);
+          return;
+        }
+        loginEmail = data.email;
+      } catch {
+        setMessage("Gagal menghubungi server. Coba lagi.");
+        setLoading(false);
+        return;
+      }
+    } else {
+      loginEmail = email.trim().toLowerCase();
+    }
+
+    const result = await supabase.auth.signInWithPassword({ email: loginEmail, password });
 
     if (result.error) {
       setMessage(getAuthErrorMessage(result.error.message));
@@ -1511,7 +1538,6 @@ export default function ThriftHatInventoryApp() {
       await supabase.auth.signOut();
       setMessage("User ini sedang nonaktif. Hubungi admin toko.");
     } else {
-      // Tampilkan nama/username dari metadata kalau ada, fallback ke email
       const displayName =
         result.data.user?.user_metadata?.name ||
         result.data.user?.user_metadata?.username ||
@@ -3410,6 +3436,9 @@ export default function ThriftHatInventoryApp() {
                           {user.role}
                         </span>
                         <div className="flex gap-2">
+                          <Button variant="secondary" onClick={() => setUserDetailModal(user)} className="h-9 px-3">
+                            <User size={15} />
+                          </Button>
                           <Button variant="secondary" onClick={() => startEditUser(user)} className="h-9 px-3">
                             <Pencil size={15} />
                           </Button>
@@ -3451,6 +3480,10 @@ export default function ThriftHatInventoryApp() {
                           </td>
                           <td className="px-4 py-4">
                             <div className="flex gap-2">
+                              <Button variant="secondary" onClick={() => setUserDetailModal(user)} className="h-9 px-3">
+                                <User size={15} />
+                                Lihat
+                              </Button>
                               <Button variant="secondary" onClick={() => startEditUser(user)} className="h-9 px-3">
                                 <Pencil size={15} />
                                 Edit
@@ -4546,6 +4579,67 @@ export default function ThriftHatInventoryApp() {
           )}
         </main>
       </div>
+
+      {/* Modal Detail User */}
+      {userDetailModal && (
+        <div className="fixed inset-0 z-[60] grid place-items-center bg-slate-950/60 p-4 backdrop-blur-sm" onClick={() => setUserDetailModal(null)}>
+          <motion.div
+            initial={{ opacity: 0, scale: 0.95 }}
+            animate={{ opacity: 1, scale: 1 }}
+            className="w-full max-w-sm rounded-2xl border border-slate-200 bg-white p-6 shadow-2xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Avatar */}
+            <div className="mb-4 flex flex-col items-center gap-3">
+              <div className="grid h-16 w-16 place-items-center rounded-2xl bg-slate-100 text-slate-600">
+                <User size={32} />
+              </div>
+              <div className="text-center">
+                <h2 className="text-xl font-black text-slate-950">{userDetailModal.name}</h2>
+                <span className={`mt-1 inline-block rounded-full px-3 py-0.5 text-xs font-black ${userDetailModal.status === "ACTIVE" ? "bg-emerald-50 text-emerald-700" : "bg-slate-100 text-slate-500"}`}>
+                  {userDetailModal.status === "ACTIVE" ? "Aktif" : "Nonaktif"}
+                </span>
+              </div>
+            </div>
+
+            <div className="grid gap-3 rounded-xl border border-slate-100 bg-slate-50 p-4">
+              <div className="flex items-center justify-between gap-3">
+                <span className="text-xs font-bold text-slate-400 uppercase">Role</span>
+                <span className="inline-flex items-center gap-1.5 rounded-full bg-slate-100 px-3 py-1 text-xs font-black text-slate-700">
+                  <ShieldCheck size={13} />
+                  {userDetailModal.role}
+                </span>
+              </div>
+
+              <div className="flex items-start justify-between gap-3">
+                <span className="text-xs font-bold text-slate-400 uppercase">Login</span>
+                <span className="text-right text-sm font-bold text-slate-700 break-all">
+                  {userDetailModal.email.endsWith(USERNAME_EMAIL_SUFFIX)
+                    ? <>Username: <span className="text-cyan-600">@{userDetailModal.email.replace(USERNAME_EMAIL_SUFFIX, "")}</span></>
+                    : userDetailModal.email}
+                </span>
+              </div>
+
+              <div className="flex items-center justify-between gap-3">
+                <span className="text-xs font-bold text-slate-400 uppercase">Bergabung</span>
+                <span className="text-sm font-bold text-slate-700">
+                  {new Intl.DateTimeFormat("id-ID", { day: "numeric", month: "long", year: "numeric" }).format(new Date(userDetailModal.createdAt))}
+                </span>
+              </div>
+            </div>
+
+            <div className="mt-4 grid grid-cols-2 gap-3">
+              <Button variant="secondary" onClick={() => { setUserDetailModal(null); startEditUser(userDetailModal); }}>
+                <Pencil size={15} />
+                Edit
+              </Button>
+              <Button onClick={() => setUserDetailModal(null)}>
+                Tutup
+              </Button>
+            </div>
+          </motion.div>
+        </div>
+      )}
 
       {logoutConfirmOpen && (
         <div className="fixed inset-0 z-[60] grid place-items-center bg-slate-950/60 p-4 backdrop-blur-sm">
