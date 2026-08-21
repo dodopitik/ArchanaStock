@@ -43,6 +43,7 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import { getSupabaseClient, isSupabaseConfigured } from "@/lib/supabase";
+import { Moon, Sun } from "lucide-react";
 
 type HatStatus = "AVAILABLE" | "SOLD";
 type ViewKey = "dashboard" | "add" | "stock" | "users" | "reports" | "finance" | "config";
@@ -893,6 +894,13 @@ function LoginScreen({
   onSubmit: () => void;
 }) {
   const isUsername = email.trim().length > 0 && !email.includes("@");
+  
+  const handleKeyPress = (event: React.KeyboardEvent) => {
+    if (event.key === "Enter" && email && password && !loading) {
+      onSubmit();
+    }
+  };
+
   return (
     <main className="grid min-h-screen place-items-center bg-[#f4f1ed] p-3 sm:p-5">
       <section className="grid w-full max-w-6xl overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl md:grid-cols-[minmax(0,1.08fr)_440px]">
@@ -956,6 +964,7 @@ function LoginScreen({
               <input
                 value={email}
                 onChange={(event) => onEmailChange(event.target.value)}
+                onKeyPress={handleKeyPress}
                 placeholder="email@toko.com atau username"
                 type="text"
                 autoComplete="username"
@@ -968,6 +977,7 @@ function LoginScreen({
               <input
                 value={password}
                 onChange={(event) => onPasswordChange(event.target.value)}
+                onKeyPress={handleKeyPress}
                 placeholder="minimal 6 karakter"
                 type="password"
                 autoComplete="current-password"
@@ -990,6 +1000,11 @@ function LoginScreen({
 
 export default function ThriftHatInventoryApp() {
   const mounted = useSyncExternalStore(subscribeToClientReady, getClientSnapshot, getServerSnapshot);
+  const [darkMode, setDarkMode] = useState(() => {
+    if (typeof window === "undefined") return false;
+    const stored = window.localStorage.getItem("archana-dark-mode");
+    return stored === "true";
+  });
   const [activeView, setActiveView] = useState<ViewKey>("dashboard");
   const [mobileNavVisible, setMobileNavVisible] = useState(true);
   const [stockView, setStockView] = useState<StockView>("grid2");
@@ -1022,6 +1037,9 @@ export default function ThriftHatInventoryApp() {
   const [expenseHistoryOpen, setExpenseHistoryOpen] = useState(false);
   const [form, setForm] = useState<FormState>(emptyForm);
   const [bulkText, setBulkText] = useState("");
+  const [bulkImages, setBulkImages] = useState<string[]>([]);
+  const [uploadingBulkImages, setUploadingBulkImages] = useState(false);
+  const bulkImageInputRef = useRef<HTMLInputElement>(null);
   const [expenses, setExpenses] = useState<Expense[]>([]);
   const [expenseForm, setExpenseForm] = useState<ExpenseFormState>(emptyExpenseForm);
   const [configHistory, setConfigHistory] = useState<FinanceConfigEntry[]>([]);
@@ -1976,9 +1994,13 @@ export default function ThriftHatInventoryApp() {
     };
   }
 
-  async function addHats(items: BulkItem[], image: string | null = null) {
+  async function addHats(items: BulkItem[], image: string | null = null, images: string[] = []) {
     if (!items.length) return false;
-    const newHats = items.map((item, index) => makeHat(item, index, image));
+    // If images array is provided, map each item to corresponding image
+    const newHats = items.map((item, index) => {
+      const itemImage = images.length > 0 ? (images[index] || null) : image;
+      return makeHat(item, index, itemImage);
+    });
 
     if (supabase) {
       const token = await getAccessToken(supabase);
@@ -2049,12 +2071,55 @@ export default function ThriftHatInventoryApp() {
     if (!bulkItems.length) return;
 
     setSavingAction("bulk");
-    const saved = await addHats(bulkItems);
+    const saved = await addHats(bulkItems, null, bulkImages);
     setSavingAction(null);
     if (!saved) return;
 
     setBulkText("");
+    setBulkImages([]);
     setActiveView("stock");
+  }
+
+  async function handleBulkImageFiles(files: FileList | null) {
+    if (!files || files.length === 0) return;
+
+    const imageFiles = Array.from(files).filter((file) => file.type.startsWith("image/"));
+    if (imageFiles.length === 0) {
+      setDbMessage("Pilih file gambar yang valid.");
+      return;
+    }
+
+    if (!supabase) {
+      setDbMessage("Upload gambar memerlukan konfigurasi Supabase.");
+      return;
+    }
+
+    setUploadingBulkImages(true);
+    const uploadedUrls: string[] = [];
+
+    try {
+      for (const file of imageFiles) {
+        const blob = await resizeImageFile(file);
+        const url = await uploadImageBlob(blob);
+        uploadedUrls.push(url);
+      }
+      setBulkImages((current) => [...current, ...uploadedUrls]);
+      setDbMessage(`${uploadedUrls.length} gambar berhasil diupload.`);
+    } catch (error) {
+      setDbMessage(error instanceof Error ? error.message : "Gagal upload beberapa gambar.");
+    } finally {
+      setUploadingBulkImages(false);
+      if (bulkImageInputRef.current) bulkImageInputRef.current.value = "";
+    }
+  }
+
+  function removeBulkImage(index: number) {
+    setBulkImages((current) => current.filter((_, i) => i !== index));
+  }
+
+  function clearAllBulkImages() {
+    setBulkImages([]);
+    if (bulkImageInputRef.current) bulkImageInputRef.current.value = "";
   }
 
   function printReceipt(hat: Hat) {
@@ -3221,10 +3286,91 @@ export default function ThriftHatInventoryApp() {
                       className="min-h-32 rounded-lg border border-slate-200 bg-white px-3 py-3 text-sm font-medium text-slate-950 outline-none transition placeholder:text-slate-400 focus:border-cyan-500 focus:ring-4 focus:ring-cyan-100"
                     />
                   </label>
+
+                  {/* Upload Multiple Images */}
+                  <div className="grid gap-3 rounded-xl border border-slate-200 bg-slate-50 p-4">
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <h4 className="text-sm font-bold text-slate-700">Upload Gambar Massal (Opsional)</h4>
+                        <p className="mt-1 text-xs leading-5 text-slate-400">
+                          Gambar akan diurutkan sesuai list dari atas ke bawah. Item tanpa gambar akan menggunakan foto default.
+                        </p>
+                      </div>
+                      {bulkImages.length > 0 && (
+                        <Button variant="ghost" onClick={clearAllBulkImages} className="h-8 shrink-0 px-3 text-xs">
+                          Hapus Semua
+                        </Button>
+                      )}
+                    </div>
+
+                    <input
+                      ref={bulkImageInputRef}
+                      type="file"
+                      accept="image/*"
+                      multiple
+                      className="hidden"
+                      onChange={(event) => void handleBulkImageFiles(event.target.files)}
+                    />
+
+                    <div className="grid gap-3">
+                      <Button
+                        variant="secondary"
+                        onClick={() => bulkImageInputRef.current?.click()}
+                        disabled={uploadingBulkImages}
+                        className="w-full"
+                      >
+                        <ImagePlus size={16} />
+                        {uploadingBulkImages ? "Mengupload..." : "Pilih Gambar (Multiple)"}
+                      </Button>
+
+                      {bulkImages.length > 0 && (
+                        <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+                          {bulkImages.map((url, index) => (
+                            <div key={index} className="group relative overflow-hidden rounded-lg border border-slate-200 bg-white">
+                              <Image
+                                src={url}
+                                alt={`Gambar ${index + 1}`}
+                                width={200}
+                                height={150}
+                                className="aspect-[4/3] w-full object-cover"
+                                unoptimized
+                              />
+                              <div className="absolute inset-x-0 bottom-0 flex items-center justify-between gap-2 bg-gradient-to-t from-black/70 to-transparent p-2">
+                                <span className="text-xs font-bold text-white">#{index + 1}</span>
+                                <button
+                                  type="button"
+                                  onClick={() => removeBulkImage(index)}
+                                  className="grid h-7 w-7 place-items-center rounded-md bg-red-500 text-white transition hover:bg-red-600"
+                                  title="Hapus gambar"
+                                  aria-label={`Hapus gambar ${index + 1}`}
+                                >
+                                  <Trash2 size={13} />
+                                </button>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+
+                      {bulkImages.length > 0 && (
+                        <p className="text-xs font-medium text-slate-500">
+                          {bulkImages.length} gambar terupload. Gambar #{bulkImages.length + 1} dst akan pakai foto default.
+                        </p>
+                      )}
+                    </div>
+                  </div>
+
                   <div className="flex flex-col gap-3 rounded-xl bg-slate-50 p-4 sm:flex-row sm:items-center sm:justify-between">
-                    <p className="text-sm font-semibold text-slate-600">
-                      {bulkItems.length ? `${bulkItems.length} item siap disimpan · jumlah stok default 1` : "Belum ada baris valid"}
-                    </p>
+                    <div>
+                      <p className="text-sm font-semibold text-slate-600">
+                        {bulkItems.length ? `${bulkItems.length} item siap disimpan · jumlah stok default 1` : "Belum ada baris valid"}
+                      </p>
+                      {bulkItems.length > 0 && bulkImages.length > 0 && (
+                        <p className="mt-1 text-xs font-medium text-slate-400">
+                          {Math.min(bulkItems.length, bulkImages.length)} item akan pakai foto upload, {Math.max(0, bulkItems.length - bulkImages.length)} foto default
+                        </p>
+                      )}
+                    </div>
                     <Button onClick={addBulkHats} disabled={!bulkItems.length || savingAction === "bulk"} className="w-full sm:w-auto">
                       <PackagePlus size={17} />
                       {savingAction === "bulk" ? "Menyimpan..." : "Simpan Massal"}
