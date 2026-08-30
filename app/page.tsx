@@ -193,6 +193,7 @@ type ReportRange = {
 
 type AuthLikeUser = {
   app_metadata?: Record<string, unknown>;
+  user_metadata?: Record<string, unknown>;
 };
 
 const storeName = "Archana Caps";
@@ -347,15 +348,19 @@ async function getAccessToken(supabase: ReturnType<typeof getSupabaseClient>) {
 function canManageUsers(user: AuthLikeUser | null | undefined) {
   if (!user) return false;
   const createdBy = user.app_metadata?.created_by;
-  const role = user.app_metadata?.role;
-  return typeof createdBy !== "string" || role === "Owner" || role === "Admin";
+  const role = String(user.app_metadata?.role || user.user_metadata?.role || "");
+  // User tanpa created_by = owner workspace utama → selalu bisa manage users
+  if (typeof createdBy !== "string") return true;
+  // Sub-user: cek role
+  return role === "Owner" || role === "Admin";
 }
 
 function canManageReports(user: AuthLikeUser | null | undefined) {
   if (!user) return false;
   const createdBy = user.app_metadata?.created_by;
-  const role = user.app_metadata?.role;
-  return typeof createdBy !== "string" || role === "Owner";
+  const role = String(user.app_metadata?.role || user.user_metadata?.role || "");
+  if (typeof createdBy !== "string") return true;
+  return role === "Owner";
 }
 
 function makeLocalId() {
@@ -1631,17 +1636,30 @@ export default function ThriftHatInventoryApp() {
     });
 
     const { data: listener } = supabase.auth.onAuthStateChange((_event, session) => {
-      if (session?.user.app_metadata?.status === "INACTIVE") {
+      if (!session) {
+        // Logout — reset semua state
+        setCurrentUser(null);
+        setCanManageUserMenu(false);
+        setCanManageReportActions(false);
+        return;
+      }
+      if (session.user.app_metadata?.status === "INACTIVE") {
         void supabase.auth.signOut();
         setCurrentUser(null);
+        setCanManageUserMenu(false);
         setCanManageReportActions(false);
         setMessage("User ini sedang nonaktif. Hubungi admin toko.");
         return;
       }
-      setCurrentUser(session?.user.email || null);
-      setCanManageUserMenu(canManageUsers(session?.user));
-      setCanManageReportActions(canManageReports(session?.user));
-      if (!canManageUsers(session?.user)) setActiveView("dashboard");
+      const displayName =
+        session.user.user_metadata?.name ||
+        session.user.user_metadata?.username ||
+        session.user.email ||
+        "";
+      setCurrentUser(displayName || null);
+      setCanManageUserMenu(canManageUsers(session.user));
+      setCanManageReportActions(canManageReports(session.user));
+      if (!canManageUsers(session.user)) setActiveView("dashboard");
     });
 
     return () => listener.subscription.unsubscribe();
