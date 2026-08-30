@@ -1156,14 +1156,13 @@ export default function ThriftHatInventoryApp() {
       : null;
 
     const sudahDiRestock = firstSoldDate
-      ? available.filter((hat) => hat.boughtAt > firstSoldDate).reduce((sum, hat) => sum + hat.costPrice, 0)
+      ? available.filter((hat) => hat.boughtAt > firstSoldDate).reduce((sum, hat) => sum + hat.costPrice * hat.stockQuantity, 0)
       : 0;
 
     // Modal awal = total modal semua barang yang dibeli SEBELUM/PADA penjualan pertama
-    // (modal startup dari kantong owner, bukan dari hasil jualan). Dipisah dari cash bisnis.
     const modalAwal = firstSoldDate
-      ? hats.filter((hat) => hat.boughtAt <= firstSoldDate).reduce((sum, hat) => sum + hat.costPrice, 0)
-      : hats.reduce((sum, hat) => sum + hat.costPrice, 0);
+      ? hats.filter((hat) => hat.boughtAt <= firstSoldDate).reduce((sum, hat) => sum + hat.costPrice * hat.stockQuantity, 0)
+      : hats.reduce((sum, hat) => sum + hat.costPrice * hat.stockQuantity, 0);
 
     const budgetRestock = costSold + alokasiBeliBaru;
 
