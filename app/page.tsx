@@ -25,6 +25,7 @@ import {
   List,
   LogOut,
   Mail,
+  Moon,
   PackagePlus,
   PiggyBank,
   Printer,
@@ -33,6 +34,7 @@ import {
   Search,
   Settings,
   ShieldCheck,
+  Sun,
   Tag,
   Trash2,
   TrendingUp,
@@ -43,7 +45,6 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import { getSupabaseClient, isSupabaseConfigured } from "@/lib/supabase";
-import { Moon, Sun } from "lucide-react";
 
 type HatStatus = "AVAILABLE" | "SOLD";
 type ViewKey = "dashboard" | "add" | "stock" | "users" | "reports" | "finance" | "config";
@@ -63,6 +64,7 @@ type Hat = {
   soldAt: string | null;
   image: string | null;
   inventoryHatId: string | null;
+  createdAt: string | null;
 };
 
 type DbHat = {
@@ -78,6 +80,7 @@ type DbHat = {
   sold_at: string | null;
   image_url: string | null;
   inventory_hat_id?: string | null;
+  created_at?: string | null;
 };
 
 type ManagedUser = {
@@ -313,6 +316,7 @@ function mapDbHat(row: DbHat): Hat {
     soldAt: row.sold_at,
     image: row.image_url,
     inventoryHatId: row.inventory_hat_id || null,
+    createdAt: row.created_at || null,
   };
 }
 
@@ -415,6 +419,30 @@ function formatDisplayDate(value: string) {
     month: "long",
     year: "numeric",
   }).format(parseDateInputValue(value));
+}
+
+function formatSaleDateTime(hat: Hat) {
+  const date = hat.soldAt ? formatDisplayDate(hat.soldAt) : "Tanggal tidak tersedia";
+  const createdAt = hat.createdAt ? new Date(hat.createdAt) : null;
+  const time = createdAt && !Number.isNaN(createdAt.getTime())
+    ? new Intl.DateTimeFormat("id-ID", {
+        hour: "2-digit",
+        minute: "2-digit",
+        second: "2-digit",
+        hourCycle: "h23",
+      }).format(createdAt)
+    : "--:--:--";
+
+  return `${date}, ${time}`;
+}
+
+function compareSalesNewestFirst(hatA: Hat, hatB: Hat) {
+  const timeA = hatA.createdAt ? Date.parse(hatA.createdAt) : Number.NaN;
+  const timeB = hatB.createdAt ? Date.parse(hatB.createdAt) : Number.NaN;
+
+  if (Number.isFinite(timeA) && Number.isFinite(timeB) && timeA !== timeB) return timeB - timeA;
+  if (Number.isFinite(timeA) !== Number.isFinite(timeB)) return Number.isFinite(timeB) ? 1 : -1;
+  return `${hatB.soldAt || ""}${hatB.code}`.localeCompare(`${hatA.soldAt || ""}${hatA.code}`);
 }
 
 function getReportRange(period: ReportPeriod, selectedDate?: string, selectedMonth?: string): ReportRange {
@@ -1008,7 +1036,7 @@ export default function ThriftHatInventoryApp() {
   const [darkMode, setDarkMode] = useState(() => {
     if (typeof window === "undefined") return false;
     const stored = window.localStorage.getItem("archana-dark-mode");
-    return stored === "true";
+    return stored === null ? window.matchMedia("(prefers-color-scheme: dark)").matches : stored === "true";
   });
   const [activeView, setActiveView] = useState<ViewKey>("dashboard");
   const [mobileNavVisible, setMobileNavVisible] = useState(true);
@@ -1254,7 +1282,7 @@ export default function ThriftHatInventoryApp() {
     () =>
       hats
         .filter((hat) => hat.status === "SOLD")
-        .sort((hatA, hatB) => `${hatB.soldAt || ""}${hatB.code}`.localeCompare(`${hatA.soldAt || ""}${hatA.code}`)),
+        .sort(compareSalesNewestFirst),
     [hats]
   );
   const activeReportRange = useMemo(() => getReportRange(reportPeriod, reportDate, reportMonth), [reportDate, reportMonth, reportPeriod]);
@@ -2010,6 +2038,7 @@ export default function ThriftHatInventoryApp() {
       soldAt: null,
       image,
       inventoryHatId: null,
+      createdAt: new Date().toISOString(),
     };
   }
 
@@ -2314,6 +2343,7 @@ export default function ThriftHatInventoryApp() {
       platform: saleDetails.platform,
       soldAt: saleDetails.sold_at,
       inventoryHatId: soldModal.id,
+      createdAt: new Date().toISOString(),
     };
 
     if (supabase) {
@@ -2741,7 +2771,7 @@ export default function ThriftHatInventoryApp() {
     const reportHats = soldHats
       .filter((hat) => range.isAll || Boolean(hat.soldAt && hat.soldAt >= range.start && hat.soldAt <= range.end))
       .filter((hat) => !normalizedQuery || `${hat.code} ${hat.name} ${hat.platform}`.toLowerCase().includes(normalizedQuery))
-      .sort((hatA, hatB) => `${hatB.soldAt || ""}${hatB.code}`.localeCompare(`${hatA.soldAt || ""}${hatA.code}`));
+      .sort(compareSalesNewestFirst);
     const revenue = reportHats.reduce((sum, hat) => sum + (hat.soldPrice || 0), 0);
     const cost = reportHats.reduce((sum, hat) => sum + hat.costPrice, 0);
     const profit = revenue - cost;
@@ -2763,7 +2793,7 @@ export default function ThriftHatInventoryApp() {
             <strong>${escapeHtml(hat.code)}</strong>
             <span>${escapeHtml(hat.name)}</span>
           </td>
-          <td>${escapeHtml(hat.soldAt ? formatDisplayDate(hat.soldAt) : "-")}</td>
+          <td>${escapeHtml(formatSaleDateTime(hat))}</td>
           <td>${escapeHtml(hat.platform || "-")}</td>
           <td class="money">${formatRupiah(hat.costPrice)}</td>
           <td class="money">${formatRupiah(hat.soldPrice)}</td>
@@ -3054,8 +3084,16 @@ export default function ThriftHatInventoryApp() {
     window.scrollTo({ top: 0, behavior: "smooth" });
   }
 
+  function toggleDarkMode() {
+    setDarkMode((current) => {
+      const next = !current;
+      window.localStorage.setItem("archana-dark-mode", String(next));
+      return next;
+    });
+  }
+
   return (
-    <div className="min-h-screen bg-slate-100 text-slate-950">
+    <div className={`${darkMode ? "dark" : ""} min-h-screen bg-slate-100 text-slate-950 transition-colors duration-300`}>
       <header
         className={`fixed inset-x-0 top-0 z-40 border-b border-slate-200 bg-white/95 shadow-sm backdrop-blur transition-transform duration-300 lg:hidden ${
           mobileNavVisible ? "translate-y-0" : "-translate-y-full"
@@ -3071,6 +3109,16 @@ export default function ThriftHatInventoryApp() {
               </div>
             </div>
             <div className="flex shrink-0 gap-2">
+              <button
+                type="button"
+                onClick={toggleDarkMode}
+                title={darkMode ? "Gunakan mode terang" : "Gunakan mode gelap"}
+                aria-label={darkMode ? "Aktifkan mode terang" : "Aktifkan mode gelap"}
+                aria-pressed={darkMode}
+                className="grid h-10 w-10 place-items-center rounded-lg border border-slate-200 bg-white text-slate-700 transition hover:bg-slate-50"
+              >
+                {darkMode ? <Sun size={18} /> : <Moon size={18} />}
+              </button>
               <button
                 type="button"
                 onClick={refreshData}
@@ -3146,6 +3194,10 @@ export default function ThriftHatInventoryApp() {
           </div>
 
           <div className="mt-4 grid gap-2">
+            <Button variant="secondary" onClick={toggleDarkMode} aria-pressed={darkMode}>
+              {darkMode ? <Sun size={16} /> : <Moon size={16} />}
+              {darkMode ? "Mode Terang" : "Mode Gelap"}
+            </Button>
             <Button variant="secondary" onClick={refreshData} disabled={!supabase || dataLoading}>
               <RefreshCw size={16} />
               {dataLoading ? "Loading..." : "Refresh"}
@@ -4576,7 +4628,8 @@ export default function ThriftHatInventoryApp() {
                         <div className="min-w-0">
                           <p className="text-xs font-bold text-slate-400">{hat.code}</p>
                           <h3 className="mt-1 line-clamp-2 font-black leading-snug text-slate-950">{hat.name}</h3>
-                          <p className="mt-1 text-xs font-semibold text-slate-400">{hat.platform || "-"} - {hat.soldAt}</p>
+                          <p className="mt-1 text-xs font-semibold text-slate-400">{hat.platform || "-"}</p>
+                          <p className="mt-1 text-xs font-bold text-cyan-700">{formatSaleDateTime(hat)}</p>
                         </div>
                         <div className="flex shrink-0 gap-1.5">
                           <Button variant="secondary" onClick={() => printReceipt(hat)} className="h-9 px-3">
@@ -4630,6 +4683,7 @@ export default function ThriftHatInventoryApp() {
                       <tr>
                         <th className="px-4 py-3">Kode</th>
                         <th className="px-4 py-3">Item</th>
+                        <th className="px-4 py-3">Tanggal & Waktu</th>
                         <th className="px-4 py-3">Modal</th>
                         <th className="px-4 py-3">Jual</th>
                         <th className="px-4 py-3">Profit</th>
@@ -4643,8 +4697,9 @@ export default function ThriftHatInventoryApp() {
                           <td className="px-4 py-4 font-semibold text-slate-500">{hat.code}</td>
                           <td className="px-4 py-4">
                             <p className="font-bold text-slate-950">{hat.name}</p>
-                            <p className="mt-1 text-xs text-slate-400">{hat.platform || "-"} - {hat.soldAt}</p>
+                            <p className="mt-1 text-xs text-slate-400">{hat.platform || "-"}</p>
                           </td>
+                          <td className="whitespace-nowrap px-4 py-4 text-xs font-bold text-cyan-700">{formatSaleDateTime(hat)}</td>
                           <td className="px-4 py-4 font-medium text-slate-600">{formatRupiah(hat.costPrice)}</td>
                           <td className="px-4 py-4 font-medium text-slate-600">{formatRupiah(hat.soldPrice)}</td>
                           <td className="px-4 py-4 font-bold text-emerald-700">{formatRupiah((hat.soldPrice || 0) - hat.costPrice)}</td>
@@ -4672,7 +4727,7 @@ export default function ThriftHatInventoryApp() {
                       ))}
                       {!filteredReportHats.length && (
                         <tr>
-                          <td colSpan={canManageReportActions ? 7 : 6} className="px-4 py-10 text-center text-sm font-medium text-slate-500">
+                          <td colSpan={canManageReportActions ? 8 : 7} className="px-4 py-10 text-center text-sm font-medium text-slate-500">
                             {reportQuery.trim() ? "Topi terjual yang dicari tidak ditemukan pada periode ini." : "Belum ada item SOLD pada periode ini."}
                           </td>
                         </tr>

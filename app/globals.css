@@ -12,13 +12,6 @@
   --font-mono: "Courier New", Courier, monospace;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #f1f5f9;
-    --foreground: #020617;
-  }
-}
-
 * {
   box-sizing: border-box;
 }
@@ -39,4 +32,86 @@ input,
 select,
 textarea {
   font: inherit;
+}
+
+/* Theme overrides for the explicit utility colors used across the dashboard. */
+.dark {
+  color-scheme: dark;
+  --background: #020617;
+  --foreground: #f8fafc;
+  background-color: #020617;
+  color: #f8fafc;
+}
+
+.dark .bg-white,
+.dark .bg-white\/95 {
+  background-color: #0f172a;
+}
+
+.dark .bg-slate-50,
+.dark .bg-slate-50\/60,
+.dark .bg-slate-100 {
+  background-color: #020617;
+}
+
+.dark .border-slate-100,
+.dark .border-slate-200,
+.dark .border-slate-300 {
+  border-color: #334155;
+}
+
+.dark .text-slate-950,
+.dark .text-slate-900,
+.dark .text-slate-800,
+.dark .text-slate-700 {
+  color: #f1f5f9;
+}
+
+.dark .text-slate-600,
+.dark .text-slate-500 {
+  color: #cbd5e1;
+}
+
+.dark .text-slate-400 {
+  color: #94a3b8;
+}
+
+.dark input,
+.dark select,
+.dark textarea {
+  background-color: #0f172a;
+  border-color: #334155;
+  color: #f8fafc;
+}
+
+.dark input::placeholder,
+.dark textarea::placeholder {
+  color: #64748b;
+}
+
+.dark .divide-slate-100 > :not(:last-child) {
+  border-color: #1e293b;
+}
+
+.dark .hover\:bg-slate-50:hover,
+.dark .hover\:bg-slate-100:hover {
+  background-color: #1e293b;
+}
+
+.dark .hover\:text-slate-950:hover {
+  color: #ffffff;
+}
+
+.dark .from-emerald-50,
+.dark .from-red-50 {
+  --tw-gradient-from: #0f172a;
+}
+
+.dark .to-white {
+  --tw-gradient-to: #020617;
+}
+
+.dark :where(section, article, header, aside, div, input, select, textarea, button) {
+  transition-property: color, background-color, border-color;
+  transition-duration: 200ms;
 }
