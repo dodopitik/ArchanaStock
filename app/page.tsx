@@ -289,6 +289,15 @@ function getCurrentConfig(history: FinanceConfigEntry[]): FinanceConfig {
   return sorted[0];
 }
 
+/**
+ * Setiap row SOLD adalah satu unit penjualan dan stockQuantity-nya memang 0.
+ * Untuk merekonstruksi uang pembelian, unit SOLD tetap harus dihitung satu kali,
+ * sedangkan row AVAILABLE memakai jumlah stok yang masih tersisa.
+ */
+function getPurchasedQuantity(hat: Hat) {
+  return hat.status === "SOLD" ? 1 : hat.stockQuantity;
+}
+
 function subscribeToClientReady(onStoreChange: () => void) {
   const timeoutId = window.setTimeout(onStoreChange, 0);
   return () => window.clearTimeout(timeoutId);
@@ -1153,7 +1162,7 @@ export default function ThriftHatInventoryApp() {
 
     // Finance allocation: dihitung per-item sold pakai config yang berlaku saat item terjual
     // (konsisten dengan biaya operasional per-item yang juga date-aware).
-    // Kalau item rugi (profit negatif), kerugian ditanggung Putar Modal saja.
+    // Profit maupun rugi dialokasikan proporsional. Sisa pembulatan masuk Putar Modal.
     let alokasiBeliBaru = 0;
     let alokasiOwner = 0;
     let alokasiTabungan = 0;
@@ -1162,17 +1171,12 @@ export default function ThriftHatInventoryApp() {
       const itemCost = hat.costPrice;
       const itemRevenue = hat.soldPrice || 0;
       const itemProfit = itemRevenue - itemCost - cfg.biayaOperasionalPerItem;
-      if (itemProfit >= 0) {
-        const putarItem = Math.round(itemProfit * (cfg.persenPutarModal / 100));
-        const ownerItem = Math.round(itemProfit * (cfg.persenOwner / 100));
-        const tabunganItem = itemProfit - putarItem - ownerItem; // sisa ke tabungan biar total pas
-        alokasiBeliBaru += putarItem;
-        alokasiOwner += ownerItem;
-        alokasiTabungan += tabunganItem;
-      } else {
-        // Rugi: seluruh kerugian ditanggung Putar Modal, Owner & Tabungan tidak terdampak
-        alokasiBeliBaru += itemProfit;
-      }
+      const ownerItem = Math.round(itemProfit * (cfg.persenOwner / 100));
+      const tabunganItem = Math.round(itemProfit * (cfg.persenTabungan / 100));
+      const putarItem = itemProfit - ownerItem - tabunganItem;
+      alokasiBeliBaru += putarItem;
+      alokasiOwner += ownerItem;
+      alokasiTabungan += tabunganItem;
     });
 
     // Expenses manual
@@ -1188,16 +1192,37 @@ export default function ThriftHatInventoryApp() {
       ? soldWithDates.reduce((earliest, hat) => (hat.soldAt! < earliest ? hat.soldAt! : earliest), soldWithDates[0].soldAt!)
       : null;
 
-    // sudahDiRestock = semua barang (available MAUPUN sold) yang dibeli setelah jualan pertama.
-    // Barang yang sudah laku pun tetap dihitung karena uang belinya sudah keluar dari Putar Modal.
+    // sudahDiRestock = seluruh unit yang dibeli setelah jualan pertama.
+    // Row SOLD memiliki stockQuantity 0, tetapi tetap mewakili satu unit yang pernah dibeli.
     const sudahDiRestock = firstSoldDate
-      ? hats.filter((hat) => hat.boughtAt > firstSoldDate).reduce((sum, hat) => sum + hat.costPrice * hat.stockQuantity, 0)
+      ? hats.filter((hat) => hat.boughtAt > firstSoldDate).reduce((sum, hat) => sum + hat.costPrice * getPurchasedQuantity(hat), 0)
       : 0;
 
-    // Modal awal = total modal semua barang yang dibeli SEBELUM/PADA penjualan pertama
+    // Modal awal = total modal seluruh unit yang dibeli SEBELUM/PADA penjualan pertama.
     const modalAwal = firstSoldDate
-      ? hats.filter((hat) => hat.boughtAt <= firstSoldDate).reduce((sum, hat) => sum + hat.costPrice * hat.stockQuantity, 0)
-      : hats.reduce((sum, hat) => sum + hat.costPrice * hat.stockQuantity, 0);
+      ? hats.filter((hat) => hat.boughtAt <= firstSoldDate).reduce((sum, hat) => sum + hat.costPrice * getPurchasedQuantity(hat), 0)
+      : hats.reduce((sum, hat) => sum + hat.costPrice * getPurchasedQuantity(hat), 0);
+
+    const summarizePurchaseGroup = (items: Hat[]) => ({
+      purchased: items.reduce((sum, hat) => sum + getPurchasedQuantity(hat), 0),
+      sold: items.filter((hat) => hat.status === "SOLD").length,
+      available: items
+        .filter((hat) => hat.status === "AVAILABLE")
+        .reduce((sum, hat) => sum + hat.stockQuantity, 0),
+      value: items.reduce((sum, hat) => sum + hat.costPrice * getPurchasedQuantity(hat), 0),
+    });
+    const modalAwalSummary = summarizePurchaseGroup(
+      firstSoldDate ? hats.filter((hat) => hat.boughtAt <= firstSoldDate) : hats,
+    );
+    const restockSummary = summarizePurchaseGroup(
+      firstSoldDate ? hats.filter((hat) => hat.boughtAt > firstSoldDate) : [],
+    );
+    const totalPurchaseSummary = {
+      purchased: modalAwalSummary.purchased + restockSummary.purchased,
+      sold: modalAwalSummary.sold + restockSummary.sold,
+      available: modalAwalSummary.available + restockSummary.available,
+      value: modalAwalSummary.value + restockSummary.value,
+    };
 
     const budgetRestock = costSold + alokasiBeliBaru;
 
@@ -1258,6 +1283,9 @@ export default function ThriftHatInventoryApp() {
     tabunganBal -= ditutupDariTabungan;
 
     const cashBisnis = putarModal + ownerBal + tabunganBal;
+    const totalAsetBisnis = cashBisnis + stockValue;
+    const totalUangKeluar = sudahDiRestock + biayaOperasional + totalOwnerDraw + totalOperational;
+    const nilaiBersihDariModal = modalAwal + profitBersih - totalOperational - totalOwnerDraw;
     const sisaBudgetRestock = putarModal; // sisa dana yang benar-benar ada untuk restock
     const kelebihanTarik = ownerDebt; // kompat lama: kasbon owner
 
@@ -1269,7 +1297,9 @@ export default function ThriftHatInventoryApp() {
       stockValue, costSold, alokasiBeliBaru, alokasiOwner, alokasiTabungan,
       budgetRestock, sudahDiRestock, sisaBudgetRestock, kelebihanTarik, modalAwal,
       totalOwnerDraw, totalOperational, totalCapitalInjection, totalSavingsDeposit, totalSavingsWithdraw,
-      putarModal, ownerBal, tabunganBal, ownerDebt, ownerCapital, cashBisnis, adaPotensiDobelOngkos,
+      putarModal, ownerBal, tabunganBal, ownerDebt, ownerCapital, cashBisnis, totalAsetBisnis,
+      totalUangKeluar, nilaiBersihDariModal, adaPotensiDobelOngkos,
+      modalAwalSummary, restockSummary, totalPurchaseSummary,
       ownerDrawDariPutar, ditutupDariTabungan,
     };
   }, [hats, expenses, financeConfig, configHistory]);
@@ -1327,7 +1357,7 @@ export default function ThriftHatInventoryApp() {
     filtered.forEach((hat) => {
       const date = hat.boughtAt;
       const current = grouped.get(date) || { total: 0, count: 0 };
-      const quantity = hat.status === "AVAILABLE" ? hat.stockQuantity : 1;
+      const quantity = getPurchasedQuantity(hat);
       grouped.set(date, { total: current.total + hat.costPrice * quantity, count: current.count + quantity });
     });
     return Array.from(grouped.entries())
@@ -3756,13 +3786,13 @@ export default function ThriftHatInventoryApp() {
                       <Landmark size={18} />
                     </div>
                     <p className="text-xs font-bold uppercase text-slate-400">Profit Bersih</p>
-                    <FormulaTooltip formula={`Profit Kotor − (${formatRupiah(financeConfig.biayaOperasionalPerItem)} × ${stats.sold} item)`} />
+                    <FormulaTooltip formula={`Profit Kotor − total ongkos per-item sesuai konfigurasi pada tanggal penjualan (${formatRupiah(stats.biayaOperasional)})`} />
                   </div>
                   <p className={`mt-3 text-xl font-black ${stats.profitBersih >= 0 ? "text-emerald-700" : "text-red-700"}`}>
                     {formatRupiah(stats.profitBersih)}
                   </p>
                   <p className={`mt-1 text-xs font-medium ${stats.profitBersih >= 0 ? "text-emerald-600" : "text-red-600"}`}>
-                    Setelah ongkos {formatRupiah(financeConfig.biayaOperasionalPerItem)}/item
+                    Setelah total ongkos per-item {formatRupiah(stats.biayaOperasional)}
                   </p>
                 </div>
               </div>
@@ -3783,11 +3813,11 @@ export default function ThriftHatInventoryApp() {
                 </div>
               </div>
 
-              {/* Cash Bisnis */}
+              {/* Posisi Keuangan: kas likuid + persediaan */}
               <div className="mt-5">
                 <div className="mb-3 flex items-center gap-2">
-                  <h3 className="text-sm font-black uppercase tracking-wide text-slate-500">Cash Bisnis</h3>
-                  <FormulaTooltip formula="Cash Bisnis = total saldo 3 dompet (Putar Modal + Owner + Tabungan). Ini saldo uang nyata bisnis, bukan profit. Modal awal startup tidak dihitung sebagai pengeluaran di sini." />
+                  <h3 className="text-sm font-black uppercase tracking-wide text-slate-500">Posisi Keuangan Bisnis</h3>
+                  <FormulaTooltip formula="Kas Likuid = uang yang belum dibelanjakan. Total Aset = Kas Likuid + nilai modal stok AVAILABLE. Restock mengubah kas menjadi stok, jadi mengurangi kas tetapi tidak langsung mengurangi total aset." />
                 </div>
 
                 {stats.adaPotensiDobelOngkos && (
@@ -3803,10 +3833,11 @@ export default function ThriftHatInventoryApp() {
                   {/* Saldo utama */}
                   <div className="flex items-center justify-between gap-4">
                     <div>
+                      <p className="text-xs font-black uppercase text-slate-500">Kas Likuid Bisnis Saat Ini</p>
                       <p className={`text-3xl font-black ${stats.cashBisnis >= 0 ? "text-emerald-700" : "text-red-700"}`}>
                         {formatRupiah(stats.cashBisnis)}
                       </p>
-                      <p className="mt-1 text-xs font-semibold text-slate-500">Total saldo 3 dompet bisnis</p>
+                      <p className="mt-1 text-xs font-semibold text-slate-500">Total 3 dompet; belum termasuk nilai stok</p>
                     </div>
                     <div className={`grid h-12 w-12 shrink-0 place-items-center rounded-xl ${stats.cashBisnis >= 0 ? "bg-emerald-100 text-emerald-700" : "bg-red-100 text-red-700"}`}>
                       <Wallet size={24} />
@@ -3841,6 +3872,90 @@ export default function ThriftHatInventoryApp() {
                     </div>
                   </div>
 
+                  <div className="mt-3 grid gap-3 sm:grid-cols-3">
+                    <div className="rounded-lg border border-slate-200 bg-white p-3">
+                      <p className="text-xs font-bold text-slate-500">Nilai Stok Saat Ini</p>
+                      <p className="mt-1 text-lg font-black text-slate-800">{formatRupiah(stats.stockValue)}</p>
+                      <p className="mt-1 text-[11px] font-medium text-slate-400">{stats.available} item AVAILABLE</p>
+                    </div>
+                    <div className="rounded-lg border border-cyan-200 bg-cyan-50/60 p-3">
+                      <div className="flex items-center gap-1.5">
+                        <p className="text-xs font-bold text-cyan-700">Total Aset Bisnis</p>
+                        <FormulaTooltip formula="Kas Likuid + nilai modal stok AVAILABLE" />
+                      </div>
+                      <p className="mt-1 text-lg font-black text-cyan-800">{formatRupiah(stats.totalAsetBisnis)}</p>
+                      <p className="mt-1 text-[11px] font-medium text-cyan-600">Kas + stok, bukan kas yang bisa langsung dipakai</p>
+                    </div>
+                    <div className="rounded-lg border border-violet-200 bg-violet-50/60 p-3">
+                      <div className="flex items-center gap-1.5">
+                        <p className="text-xs font-bold text-violet-700">Nilai Bersih dari Modal</p>
+                        <FormulaTooltip formula="Modal awal + profit bersih − operasional manual − owner draw. Hasilnya sama dengan Kas Likuid + Stok." />
+                      </div>
+                      <p className="mt-1 text-lg font-black text-violet-800">{formatRupiah(stats.nilaiBersihDariModal)}</p>
+                      <p className="mt-1 text-[11px] font-medium text-violet-600">Rekonsiliasi terhadap modal awal</p>
+                    </div>
+                  </div>
+
+                  <div className="mt-3 rounded-lg border border-cyan-200 bg-cyan-50/60 px-3 py-2.5 text-xs font-medium leading-5 text-cyan-800">
+                    Restock bukan uang hilang: pembelian mengubah kas menjadi persediaan. Posisi saat ini adalah <strong>{formatRupiah(stats.cashBisnis)} kas likuid</strong> + <strong>{formatRupiah(stats.stockValue)} stok</strong> = <strong>{formatRupiah(stats.totalAsetBisnis)} total aset</strong>.
+                  </div>
+
+                  <div className="mt-3 overflow-hidden rounded-lg border border-slate-200 bg-white">
+                    <div className="border-b border-slate-200 px-3 py-2.5">
+                      <div className="flex items-center gap-1.5">
+                        <p className="text-xs font-black uppercase text-slate-600">Rekonsiliasi Modal Barang</p>
+                        <FormulaTooltip formula="Dibeli = Terjual + Tersedia. Nilai modal pembelian = modal barang terjual + nilai modal stok aktif." />
+                      </div>
+                    </div>
+                    <div className="overflow-x-auto">
+                      <table className="w-full min-w-[520px] text-xs">
+                        <thead className="bg-slate-50 text-slate-500">
+                          <tr>
+                            <th className="px-3 py-2 text-left font-bold">Sumber</th>
+                            <th className="px-3 py-2 text-right font-bold">Dibeli</th>
+                            <th className="px-3 py-2 text-right font-bold">Terjual</th>
+                            <th className="px-3 py-2 text-right font-bold">Tersedia</th>
+                            <th className="px-3 py-2 text-right font-bold">Nilai Modal</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-100 text-slate-700">
+                          {[
+                            { label: "Modal awal", summary: stats.modalAwalSummary },
+                            { label: "Restock", summary: stats.restockSummary },
+                          ].map(({ label, summary }) => (
+                            <tr key={label}>
+                              <td className="px-3 py-2 font-semibold">{label}</td>
+                              <td className="px-3 py-2 text-right">{summary.purchased}</td>
+                              <td className="px-3 py-2 text-right">{summary.sold}</td>
+                              <td className="px-3 py-2 text-right">{summary.available}</td>
+                              <td className="px-3 py-2 text-right font-semibold">{formatRupiah(summary.value)}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                        <tfoot className="border-t border-slate-200 bg-slate-50 text-slate-800">
+                          <tr>
+                            <td className="px-3 py-2 font-black">Total</td>
+                            <td className="px-3 py-2 text-right font-black">{stats.totalPurchaseSummary.purchased}</td>
+                            <td className="px-3 py-2 text-right font-black">{stats.totalPurchaseSummary.sold}</td>
+                            <td className="px-3 py-2 text-right font-black">{stats.totalPurchaseSummary.available}</td>
+                            <td className="px-3 py-2 text-right font-black">{formatRupiah(stats.totalPurchaseSummary.value)}</td>
+                          </tr>
+                        </tfoot>
+                      </table>
+                    </div>
+                    <div className="grid gap-1 border-t border-slate-200 px-3 py-2.5 text-[11px] font-medium text-slate-500 sm:grid-cols-2">
+                      <p>{stats.totalPurchaseSummary.purchased} dibeli = {stats.totalPurchaseSummary.sold} terjual + {stats.totalPurchaseSummary.available} tersedia</p>
+                      <p className="sm:text-right">{formatRupiah(stats.costSold)} modal terjual + {formatRupiah(stats.stockValue)} stok = {formatRupiah(stats.totalPurchaseSummary.value)}</p>
+                    </div>
+                  </div>
+
+                  <div className="mt-3 rounded-lg border border-violet-200 bg-violet-50/60 px-3 py-2.5 text-xs leading-5 text-violet-800">
+                    <p className="font-black uppercase">Persamaan Nilai Bersih</p>
+                    <p className="mt-1 font-medium">
+                      {formatRupiah(stats.modalAwal)} modal awal + {formatRupiah(stats.profitBersih)} profit bersih − {formatRupiah(stats.totalOperational)} operasional manual − {formatRupiah(stats.totalOwnerDraw)} owner draw = <strong>{formatRupiah(stats.nilaiBersihDariModal)}</strong>
+                    </p>
+                  </div>
+
                   {/* Status Kasbon / Talangan Owner */}
                   {(stats.ownerDebt > 0 || stats.ownerCapital > 0) && (
                     <div className="mt-3 grid gap-2 sm:grid-cols-2">
@@ -3870,7 +3985,7 @@ export default function ThriftHatInventoryApp() {
                     </div>
                     <div className="rounded-lg border border-red-200 bg-red-50/50 p-3">
                       <p className="text-xs font-bold text-red-500">Uang Keluar</p>
-                      <p className="mt-1 text-lg font-black text-red-700">{formatRupiah(stats.sudahDiRestock + stats.biayaOperasional + stats.totalOwnerDraw + stats.totalOperational)}</p>
+                      <p className="mt-1 text-lg font-black text-red-700">{formatRupiah(stats.totalUangKeluar)}</p>
                       <p className="mt-1 text-xs text-red-500/70">Restock + ongkos + pengeluaran</p>
                     </div>
                   </div>
@@ -3879,7 +3994,7 @@ export default function ThriftHatInventoryApp() {
                   <div className="mt-3 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-slate-200 bg-white px-3 py-2.5">
                     <div className="flex items-center gap-2">
                       <Landmark size={15} className="text-slate-400" />
-                      <span className="text-xs font-semibold text-slate-500">Modal Awal (startup, di luar cash)</span>
+                      <span className="text-xs font-semibold text-slate-500">Modal Awal Startup (sumber aset awal)</span>
                     </div>
                     <span className="text-sm font-black text-slate-700">{formatRupiah(stats.modalAwal)}</span>
                   </div>
@@ -3900,7 +4015,7 @@ export default function ThriftHatInventoryApp() {
                         <span className="font-bold text-slate-700">{formatRupiah(stats.sudahDiRestock)}</span>
                       </div>
                       <div className="flex items-center justify-between gap-3 text-xs">
-                        <span className="text-slate-500">Ongkos operasional ({formatRupiah(financeConfig.biayaOperasionalPerItem)} × {stats.sold})</span>
+                        <span className="text-slate-500">Ongkos per-item sesuai tanggal penjualan</span>
                         <span className="font-bold text-slate-700">{formatRupiah(stats.biayaOperasional)}</span>
                       </div>
                       <div className="flex items-center justify-between gap-3 text-xs">
@@ -4154,7 +4269,7 @@ export default function ThriftHatInventoryApp() {
               <div className="mt-5">
                 <div className="mb-3 flex items-center gap-2">
                   <h3 className="text-sm font-black uppercase tracking-wide text-slate-500">Dana Restock (Putar Modal)</h3>
-                  <FormulaTooltip formula={`Saldo dompet Putar Modal = modal terjual balik + ${financeConfig.persenPutarModal}% profit bersih + talangan/tarik tabungan − restock − operasional − tarikan owner yang membebani dompet ini − setor tabungan.`} />
+                  <FormulaTooltip formula={`Saldo dompet Putar Modal = modal terjual balik + alokasi profit/rugi per item + talangan/tarik tabungan − restock − operasional − tarikan owner yang membebani dompet ini − setor tabungan.`} />
                 </div>
                 <div className={`rounded-xl border-2 p-5 ${stats.sisaBudgetRestock >= 0 ? "border-cyan-200 bg-gradient-to-br from-cyan-50 to-white" : "border-red-200 bg-gradient-to-br from-red-50 to-white"}`}>
                   <div className="flex items-center justify-between gap-4">
@@ -4178,7 +4293,7 @@ export default function ThriftHatInventoryApp() {
                       <span className="font-bold text-slate-950">{formatRupiah(stats.costSold)}</span>
                     </div>
                     <div className="flex items-center justify-between gap-3 text-sm">
-                      <span className="font-medium text-slate-500">+ {financeConfig.persenPutarModal}% profit (putar modal)</span>
+                      <span className="font-medium text-slate-500">+ Alokasi profit/rugi per item (putar modal)</span>
                       <span className="font-bold text-slate-950">{formatRupiah(stats.alokasiBeliBaru)}</span>
                     </div>
                     {stats.totalCapitalInjection > 0 && (
@@ -4246,7 +4361,7 @@ export default function ThriftHatInventoryApp() {
                         <Repeat size={18} />
                       </div>
                       <span className="text-xs font-black uppercase text-cyan-600">{financeConfig.persenPutarModal}% Putar Modal</span>
-                      <FormulaTooltip formula={`Profit Bersih × ${financeConfig.persenPutarModal}%`} />
+                      <FormulaTooltip formula={`Profit/rugi dialokasikan per item; Putar Modal menerima sisa pembulatan agar total alokasi selalu tepat.`} />
                     </div>
                     <p className="mt-3 text-xl font-black text-slate-950">{formatRupiah(stats.alokasiBeliBaru)}</p>
                     <p className="mt-1 text-xs font-medium text-slate-400">Untuk beli barang baru</p>
@@ -4258,7 +4373,7 @@ export default function ThriftHatInventoryApp() {
                         <Wallet size={18} />
                       </div>
                       <span className="text-xs font-black uppercase text-emerald-600">{financeConfig.persenOwner}% Owner</span>
-                      <FormulaTooltip formula={`Profit Bersih × ${financeConfig.persenOwner}%`} />
+                      <FormulaTooltip formula={`Dihitung per item: profit atau rugi item × ${financeConfig.persenOwner}%, lalu dibulatkan ke rupiah terdekat.`} />
                     </div>
                     <p className="mt-3 text-xl font-black text-slate-950">{formatRupiah(stats.alokasiOwner)}</p>
                     <p className="mt-1 text-xs font-medium text-slate-400">Profit untuk owner</p>
@@ -4270,7 +4385,7 @@ export default function ThriftHatInventoryApp() {
                         <PiggyBank size={18} />
                       </div>
                       <span className="text-xs font-black uppercase text-amber-600">{financeConfig.persenTabungan}% Tabungan</span>
-                      <FormulaTooltip formula={`Profit Bersih × ${financeConfig.persenTabungan}%`} />
+                      <FormulaTooltip formula={`Dihitung per item: profit atau rugi item × ${financeConfig.persenTabungan}%, lalu dibulatkan ke rupiah terdekat.`} />
                     </div>
                     <p className="mt-3 text-xl font-black text-slate-950">{formatRupiah(stats.alokasiTabungan)}</p>
                     <p className="mt-1 text-xs font-medium text-slate-400">Tabungan bisnis darurat</p>
