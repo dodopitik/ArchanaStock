@@ -2827,7 +2827,7 @@ export default function ThriftHatInventoryApp() {
           <td>${escapeHtml(hat.platform || "-")}</td>
           <td class="money">${formatRupiah(hat.costPrice)}</td>
           <td class="money">${formatRupiah(hat.soldPrice)}</td>
-          <td class="money strong">${formatRupiah((hat.soldPrice || 0) - hat.costPrice)}</td>
+          <td class="money strong${(hat.soldPrice || 0) - hat.costPrice < 0 ? ' negative' : ''}">${(hat.soldPrice || 0) - hat.costPrice < 0 ? '-' : ''}${formatRupiah(Math.abs((hat.soldPrice || 0) - hat.costPrice))}</td>
         </tr>`
       )
       .join("");
@@ -2956,6 +2956,9 @@ export default function ThriftHatInventoryApp() {
       .strong {
         color: #047857;
         font-weight: 900;
+      }
+      .negative {
+        color: #b91c1c !important;
       }
       .empty {
         border: 1px dashed #cbd5e1;
@@ -3731,13 +3734,13 @@ export default function ThriftHatInventoryApp() {
               />
 
               {/* Finance Cards */}
-              <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
-                <div className="relative rounded-xl border-2 border-slate-200 bg-gradient-to-br from-slate-50 to-white p-4">
+              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                <div className="relative rounded-xl border-2 border-slate-200 bg-white p-4">
                   <div className="flex items-center gap-2">
                     <div className="grid h-9 w-9 place-items-center rounded-lg bg-slate-100 text-slate-700">
                       <Boxes size={18} />
                     </div>
-                    <p className="text-xs font-bold uppercase text-slate-400">Modal Aset</p>
+                    <p className="text-xs font-bold uppercase text-slate-600">Nilai Stok</p>
                     <FormulaTooltip formula="Σ Harga Modal semua item yang masih AVAILABLE (stok saat ini)" />
                   </div>
                   <p className="mt-3 text-xl font-black text-slate-950">{formatRupiah(stats.stockValue)}</p>
@@ -3749,7 +3752,7 @@ export default function ThriftHatInventoryApp() {
                     <div className="grid h-9 w-9 place-items-center rounded-lg bg-emerald-50 text-emerald-600">
                       <ArrowUpCircle size={18} />
                     </div>
-                    <p className="text-xs font-bold uppercase text-slate-400">Total Penjualan</p>
+                    <p className="text-xs font-bold uppercase text-slate-600">Total Penjualan</p>
                     <FormulaTooltip formula="Σ Harga Jual semua item SOLD" />
                   </div>
                   <p className="mt-3 text-xl font-black text-slate-950">{formatRupiah(stats.revenue)}</p>
@@ -3761,11 +3764,11 @@ export default function ThriftHatInventoryApp() {
                     <div className="grid h-9 w-9 place-items-center rounded-lg bg-red-50 text-red-600">
                       <ArrowDownCircle size={18} />
                     </div>
-                    <p className="text-xs font-bold uppercase text-slate-400">Modal Barang Terjual</p>
+                    <p className="text-xs font-bold uppercase text-slate-600">Modal Terjual</p>
                     <FormulaTooltip formula="Σ Harga Modal item yang sudah SOLD" />
                   </div>
                   <p className="mt-3 text-xl font-black text-slate-950">{formatRupiah(stats.costSold)}</p>
-                  <p className="mt-1 text-xs font-medium text-red-500">Modal produk yang sudah laku</p>
+                  <p className="mt-1 text-xs font-medium text-red-600">Modal produk yang sudah laku</p>
                 </div>
 
                 <div className="relative rounded-xl border border-slate-200 bg-white p-4">
@@ -3773,22 +3776,25 @@ export default function ThriftHatInventoryApp() {
                     <div className="grid h-9 w-9 place-items-center rounded-lg bg-cyan-50 text-cyan-600">
                       <TrendingUp size={18} />
                     </div>
-                    <p className="text-xs font-bold uppercase text-slate-400">Profit Kotor</p>
+                    <p className="text-xs font-bold uppercase text-slate-600">Profit Kotor</p>
                     <FormulaTooltip formula="Total Penjualan − Modal Terjual" />
                   </div>
                   <p className="mt-3 text-xl font-black text-slate-950">{formatRupiah(stats.profit)}</p>
                   <p className="mt-1 text-xs font-medium text-cyan-600">Penjualan − Modal</p>
                 </div>
+              </div>
 
-                <div className={`relative rounded-xl border-2 p-4 ${stats.profitBersih >= 0 ? "border-emerald-200 bg-emerald-50/50" : "border-red-200 bg-red-50/50"}`}>
+              {/* Profit Bersih - Standalone card */}
+              <div className="mt-3">
+                <div className={`relative rounded-xl border-2 p-5 ${stats.profitBersih >= 0 ? "border-emerald-200 bg-emerald-50" : "border-red-200 bg-red-50"}`}>
                   <div className="flex items-center gap-2">
                     <div className={`grid h-9 w-9 place-items-center rounded-lg ${stats.profitBersih >= 0 ? "bg-emerald-100 text-emerald-700" : "bg-red-100 text-red-700"}`}>
                       <Landmark size={18} />
                     </div>
-                    <p className="text-xs font-bold uppercase text-slate-400">Profit Bersih</p>
+                    <p className={`text-xs font-bold uppercase ${stats.profitBersih >= 0 ? "text-emerald-900" : "text-red-900"}`}>Profit Bersih</p>
                     <FormulaTooltip formula={`Profit Kotor − total ongkos per-item sesuai konfigurasi pada tanggal penjualan (${formatRupiah(stats.biayaOperasional)})`} />
                   </div>
-                  <p className={`mt-3 text-xl font-black ${stats.profitBersih >= 0 ? "text-emerald-700" : "text-red-700"}`}>
+                  <p className={`mt-3 text-3xl font-black ${stats.profitBersih >= 0 ? "text-emerald-700" : "text-red-700"}`}>
                     {formatRupiah(stats.profitBersih)}
                   </p>
                   <p className={`mt-1 text-xs font-medium ${stats.profitBersih >= 0 ? "text-emerald-600" : "text-red-600"}`}>
@@ -3798,15 +3804,15 @@ export default function ThriftHatInventoryApp() {
               </div>
 
               {/* Status Bisnis */}
-              <div className={`mt-4 flex items-center justify-between gap-4 rounded-xl border-2 p-4 ${stats.profitBersih >= 0 ? "border-emerald-200 bg-emerald-50/30" : "border-red-200 bg-red-50/30"}`}>
+              <div className={`mt-4 flex items-center justify-between gap-4 rounded-xl border-2 p-4 ${stats.profitBersih >= 0 ? "border-emerald-200 bg-emerald-50" : "border-red-200 bg-red-50"}`}>
                 <div>
-                  <p className="text-xs font-bold uppercase text-slate-400">Status Bisnis</p>
+                  <p className={`text-xs font-bold uppercase ${stats.profitBersih >= 0 ? "text-emerald-900" : "text-red-900"}`}>Status Bisnis</p>
                   <p className={`mt-1 text-2xl font-black ${stats.profitBersih >= 0 ? "text-emerald-700" : "text-red-700"}`}>
                     {stats.profitBersih >= 0 ? "UNTUNG" : "RUGI"}
                   </p>
                 </div>
                 <div className="text-right">
-                  <p className="text-xs font-medium text-slate-400">Margin bersih</p>
+                  <p className={`text-xs font-medium ${stats.profitBersih >= 0 ? "text-emerald-700" : "text-red-700"}`}>Margin bersih</p>
                   <p className={`text-lg font-black ${stats.profitBersih >= 0 ? "text-emerald-700" : "text-red-700"}`}>
                     {stats.revenue ? Math.round((stats.profitBersih / stats.revenue) * 100) : 0}%
                   </p>
@@ -3829,15 +3835,15 @@ export default function ThriftHatInventoryApp() {
                   </div>
                 )}
 
-                <div className={`rounded-xl border-2 p-5 ${stats.cashBisnis >= 0 ? "border-emerald-200 bg-gradient-to-br from-emerald-50 to-white" : "border-red-200 bg-gradient-to-br from-red-50 to-white"}`}>
+                <div className={`rounded-xl border-2 p-5 ${stats.cashBisnis >= 0 ? "border-emerald-200 bg-emerald-50" : "border-red-200 bg-red-50"}`}>
                   {/* Saldo utama */}
                   <div className="flex items-center justify-between gap-4">
                     <div>
-                      <p className="text-xs font-black uppercase text-slate-500">Kas Likuid Bisnis Saat Ini</p>
+                      <p className={`text-xs font-black uppercase ${stats.cashBisnis >= 0 ? "text-emerald-900" : "text-red-900"}`}>Kas Likuid Bisnis Saat Ini</p>
                       <p className={`text-3xl font-black ${stats.cashBisnis >= 0 ? "text-emerald-700" : "text-red-700"}`}>
                         {formatRupiah(stats.cashBisnis)}
                       </p>
-                      <p className="mt-1 text-xs font-semibold text-slate-500">Total 3 dompet; belum termasuk nilai stok</p>
+                      <p className={`mt-1 text-xs font-semibold ${stats.cashBisnis >= 0 ? "text-emerald-700" : "text-red-700"}`}>Total 3 dompet; belum termasuk nilai stok</p>
                     </div>
                     <div className={`grid h-12 w-12 shrink-0 place-items-center rounded-xl ${stats.cashBisnis >= 0 ? "bg-emerald-100 text-emerald-700" : "bg-red-100 text-red-700"}`}>
                       <Wallet size={24} />
@@ -3846,7 +3852,7 @@ export default function ThriftHatInventoryApp() {
 
                   {/* 3 Dompet */}
                   <div className="mt-4 grid gap-3 sm:grid-cols-3">
-                    <div className={`rounded-xl border-2 p-3 ${stats.putarModal >= 0 ? "border-cyan-200 bg-cyan-50/60" : "border-red-200 bg-red-50/60"}`}>
+                    <div className={`rounded-xl border-2 p-3 ${stats.putarModal >= 0 ? "border-cyan-200 bg-cyan-50" : "border-red-200 bg-red-50"}`}>
                       <div className="flex items-center gap-2">
                         <Repeat size={15} className={stats.putarModal >= 0 ? "text-cyan-600" : "text-red-600"} />
                         <p className="text-xs font-black uppercase text-slate-500">Putar Modal</p>
@@ -3854,7 +3860,7 @@ export default function ThriftHatInventoryApp() {
                       <p className={`mt-2 text-lg font-black ${stats.putarModal >= 0 ? "text-cyan-700" : "text-red-700"}`}>{formatRupiah(stats.putarModal)}</p>
                       <p className="mt-1 text-[11px] font-medium text-slate-400">Dana buat restock & operasional</p>
                     </div>
-                    <div className={`rounded-xl border-2 p-3 ${stats.ownerBal >= 0 ? "border-emerald-200 bg-emerald-50/60" : "border-red-200 bg-red-50/60"}`}>
+                    <div className={`rounded-xl border-2 p-3 ${stats.ownerBal >= 0 ? "border-emerald-200 bg-emerald-50" : "border-red-200 bg-red-50"}`}>
                       <div className="flex items-center gap-2">
                         <Wallet size={15} className="text-emerald-600" />
                         <p className="text-xs font-black uppercase text-slate-500">Owner</p>
@@ -3862,7 +3868,7 @@ export default function ThriftHatInventoryApp() {
                       <p className="mt-2 text-lg font-black text-emerald-700">{formatRupiah(stats.ownerBal)}</p>
                       <p className="mt-1 text-[11px] font-medium text-slate-400">Jatah owner yang belum ditarik</p>
                     </div>
-                    <div className={`rounded-xl border-2 p-3 ${stats.tabunganBal >= 0 ? "border-amber-200 bg-amber-50/60" : "border-red-200 bg-red-50/60"}`}>
+                    <div className={`rounded-xl border-2 p-3 ${stats.tabunganBal >= 0 ? "border-amber-200 bg-amber-50" : "border-red-200 bg-red-50"}`}>
                       <div className="flex items-center gap-2">
                         <PiggyBank size={15} className={stats.tabunganBal >= 0 ? "text-amber-600" : "text-red-600"} />
                         <p className="text-xs font-black uppercase text-slate-500">Tabungan</p>
@@ -3874,11 +3880,11 @@ export default function ThriftHatInventoryApp() {
 
                   <div className="mt-3 grid gap-3 sm:grid-cols-3">
                     <div className="rounded-lg border border-slate-200 bg-white p-3">
-                      <p className="text-xs font-bold text-slate-500">Nilai Stok Saat Ini</p>
+                      <p className="text-xs font-bold text-slate-700">Nilai Stok Saat Ini</p>
                       <p className="mt-1 text-lg font-black text-slate-800">{formatRupiah(stats.stockValue)}</p>
                       <p className="mt-1 text-[11px] font-medium text-slate-400">{stats.available} item AVAILABLE</p>
                     </div>
-                    <div className="rounded-lg border border-cyan-200 bg-cyan-50/60 p-3">
+                    <div className="rounded-lg border border-cyan-200 bg-cyan-50 p-3">
                       <div className="flex items-center gap-1.5">
                         <p className="text-xs font-bold text-cyan-700">Total Aset Bisnis</p>
                         <FormulaTooltip formula="Kas Likuid + nilai modal stok AVAILABLE" />
@@ -3886,7 +3892,7 @@ export default function ThriftHatInventoryApp() {
                       <p className="mt-1 text-lg font-black text-cyan-800">{formatRupiah(stats.totalAsetBisnis)}</p>
                       <p className="mt-1 text-[11px] font-medium text-cyan-600">Kas + stok, bukan kas yang bisa langsung dipakai</p>
                     </div>
-                    <div className="rounded-lg border border-violet-200 bg-violet-50/60 p-3">
+                    <div className="rounded-lg border border-violet-200 bg-violet-50 p-3">
                       <div className="flex items-center gap-1.5">
                         <p className="text-xs font-bold text-violet-700">Nilai Bersih dari Modal</p>
                         <FormulaTooltip formula="Modal awal + profit bersih − operasional manual − owner draw. Hasilnya sama dengan Kas Likuid + Stok." />
@@ -3896,7 +3902,7 @@ export default function ThriftHatInventoryApp() {
                     </div>
                   </div>
 
-                  <div className="mt-3 rounded-lg border border-cyan-200 bg-cyan-50/60 px-3 py-2.5 text-xs font-medium leading-5 text-cyan-800">
+                  <div className="mt-3 rounded-lg border border-cyan-200 bg-cyan-50 px-3 py-2.5 text-xs font-medium leading-5 text-cyan-800">
                     Restock bukan uang hilang: pembelian mengubah kas menjadi persediaan. Posisi saat ini adalah <strong>{formatRupiah(stats.cashBisnis)} kas likuid</strong> + <strong>{formatRupiah(stats.stockValue)} stok</strong> = <strong>{formatRupiah(stats.totalAsetBisnis)} total aset</strong>.
                   </div>
 
@@ -3949,7 +3955,7 @@ export default function ThriftHatInventoryApp() {
                     </div>
                   </div>
 
-                  <div className="mt-3 rounded-lg border border-violet-200 bg-violet-50/60 px-3 py-2.5 text-xs leading-5 text-violet-800">
+                  <div className="mt-3 rounded-lg border border-violet-200 bg-violet-50 px-3 py-2.5 text-xs leading-5 text-violet-800">
                     <p className="font-black uppercase">Persamaan Nilai Bersih</p>
                     <p className="mt-1 font-medium">
                       {formatRupiah(stats.modalAwal)} modal awal + {formatRupiah(stats.profitBersih)} profit bersih − {formatRupiah(stats.totalOperational)} operasional manual − {formatRupiah(stats.totalOwnerDraw)} owner draw = <strong>{formatRupiah(stats.nilaiBersihDariModal)}</strong>
@@ -3960,14 +3966,14 @@ export default function ThriftHatInventoryApp() {
                   {(stats.ownerDebt > 0 || stats.ownerCapital > 0) && (
                     <div className="mt-3 grid gap-2 sm:grid-cols-2">
                       {stats.ownerDebt > 0 && (
-                        <div className="rounded-xl border border-red-200 bg-red-50/60 p-3">
+                        <div className="rounded-xl border border-red-200 bg-red-50 p-3">
                           <p className="text-xs font-black uppercase text-red-500">Kasbon Owner</p>
                           <p className="mt-1 text-lg font-black text-red-700">{formatRupiah(stats.ownerDebt)}</p>
                           <p className="mt-1 text-[11px] font-medium text-red-500/80">Owner narik lebih dari jatah → owner utang ke bisnis. Otomatis lunas dari jatah profit berikutnya.</p>
                         </div>
                       )}
                       {stats.ownerCapital > 0 && (
-                        <div className="rounded-xl border border-emerald-200 bg-emerald-50/60 p-3">
+                        <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-3">
                           <p className="text-xs font-black uppercase text-emerald-600">Talangan Owner</p>
                           <p className="mt-1 text-lg font-black text-emerald-700">{formatRupiah(stats.ownerCapital)}</p>
                           <p className="mt-1 text-[11px] font-medium text-emerald-600/80">Owner nombok pakai uang pribadi → bisnis utang ke owner. Bisa ditarik balik kapan saja.</p>
@@ -3978,12 +3984,12 @@ export default function ThriftHatInventoryApp() {
 
                   {/* Ringkasan masuk vs keluar */}
                   <div className="mt-3 grid gap-3 sm:grid-cols-2">
-                    <div className="rounded-lg border border-emerald-200 bg-emerald-50/50 p-3">
+                    <div className="rounded-lg border border-emerald-200 bg-emerald-50 p-3">
                       <p className="text-xs font-bold text-emerald-600">Uang Masuk</p>
                       <p className="mt-1 text-lg font-black text-emerald-700">{formatRupiah(stats.revenue + stats.totalCapitalInjection)}</p>
                       <p className="mt-1 text-xs text-emerald-600/70">{stats.sold} item terjual{stats.totalCapitalInjection > 0 ? " + talangan owner" : ""}</p>
                     </div>
-                    <div className="rounded-lg border border-red-200 bg-red-50/50 p-3">
+                    <div className="rounded-lg border border-red-200 bg-red-50 p-3">
                       <p className="text-xs font-bold text-red-500">Uang Keluar</p>
                       <p className="mt-1 text-lg font-black text-red-700">{formatRupiah(stats.totalUangKeluar)}</p>
                       <p className="mt-1 text-xs text-red-500/70">Restock + ongkos + pengeluaran</p>
@@ -4271,7 +4277,7 @@ export default function ThriftHatInventoryApp() {
                   <h3 className="text-sm font-black uppercase tracking-wide text-slate-500">Dana Restock (Putar Modal)</h3>
                   <FormulaTooltip formula={`Saldo dompet Putar Modal = modal terjual balik + alokasi profit/rugi per item + talangan/tarik tabungan − restock − operasional − tarikan owner yang membebani dompet ini − setor tabungan.`} />
                 </div>
-                <div className={`rounded-xl border-2 p-5 ${stats.sisaBudgetRestock >= 0 ? "border-cyan-200 bg-gradient-to-br from-cyan-50 to-white" : "border-red-200 bg-gradient-to-br from-red-50 to-white"}`}>
+                <div className={`rounded-xl border-2 p-5 ${stats.sisaBudgetRestock >= 0 ? "border-cyan-200 bg-cyan-50" : "border-red-200 bg-red-50"}`}>
                   <div className="flex items-center justify-between gap-4">
                     <div>
                       <p className="text-xs font-bold uppercase text-slate-400">Sisa Dana Restock</p>
@@ -4355,40 +4361,40 @@ export default function ThriftHatInventoryApp() {
                   </div>
                 )}
                 <div className="grid gap-3 sm:grid-cols-3">
-                  <div className="rounded-xl border-2 border-cyan-200 bg-gradient-to-br from-cyan-50 to-white p-4">
+                  <div className="rounded-xl border-2 border-cyan-200 bg-cyan-50 p-4">
                     <div className="flex items-center gap-2">
                       <div className="grid h-9 w-9 place-items-center rounded-lg bg-cyan-100 text-cyan-700">
                         <Repeat size={18} />
                       </div>
-                      <span className="text-xs font-black uppercase text-cyan-600">{financeConfig.persenPutarModal}% Putar Modal</span>
+                      <span className="text-xs font-black uppercase text-cyan-900">{financeConfig.persenPutarModal}% Putar Modal</span>
                       <FormulaTooltip formula={`Profit/rugi dialokasikan per item; Putar Modal menerima sisa pembulatan agar total alokasi selalu tepat.`} />
                     </div>
-                    <p className="mt-3 text-xl font-black text-slate-950">{formatRupiah(stats.alokasiBeliBaru)}</p>
-                    <p className="mt-1 text-xs font-medium text-slate-400">Untuk beli barang baru</p>
+                    <p className="mt-3 text-xl font-black text-cyan-900">{formatRupiah(stats.alokasiBeliBaru)}</p>
+                    <p className="mt-1 text-xs font-semibold text-cyan-800">Untuk beli barang baru</p>
                   </div>
 
-                  <div className="rounded-xl border-2 border-emerald-200 bg-gradient-to-br from-emerald-50 to-white p-4">
+                  <div className="rounded-xl border-2 border-emerald-200 bg-emerald-50 p-4">
                     <div className="flex items-center gap-2">
                       <div className="grid h-9 w-9 place-items-center rounded-lg bg-emerald-100 text-emerald-700">
                         <Wallet size={18} />
                       </div>
-                      <span className="text-xs font-black uppercase text-emerald-600">{financeConfig.persenOwner}% Owner</span>
+                      <span className="text-xs font-black uppercase text-emerald-900">{financeConfig.persenOwner}% Owner</span>
                       <FormulaTooltip formula={`Dihitung per item: profit atau rugi item × ${financeConfig.persenOwner}%, lalu dibulatkan ke rupiah terdekat.`} />
                     </div>
-                    <p className="mt-3 text-xl font-black text-slate-950">{formatRupiah(stats.alokasiOwner)}</p>
-                    <p className="mt-1 text-xs font-medium text-slate-400">Profit untuk owner</p>
+                    <p className="mt-3 text-xl font-black text-emerald-900">{formatRupiah(stats.alokasiOwner)}</p>
+                    <p className="mt-1 text-xs font-semibold text-emerald-800">Profit untuk owner</p>
                   </div>
 
-                  <div className="rounded-xl border-2 border-amber-200 bg-gradient-to-br from-amber-50 to-white p-4">
+                  <div className="rounded-xl border-2 border-amber-200 bg-amber-50 p-4">
                     <div className="flex items-center gap-2">
                       <div className="grid h-9 w-9 place-items-center rounded-lg bg-amber-100 text-amber-700">
                         <PiggyBank size={18} />
                       </div>
-                      <span className="text-xs font-black uppercase text-amber-600">{financeConfig.persenTabungan}% Tabungan</span>
+                      <span className="text-xs font-black uppercase text-amber-900">{financeConfig.persenTabungan}% Tabungan</span>
                       <FormulaTooltip formula={`Dihitung per item: profit atau rugi item × ${financeConfig.persenTabungan}%, lalu dibulatkan ke rupiah terdekat.`} />
                     </div>
-                    <p className="mt-3 text-xl font-black text-slate-950">{formatRupiah(stats.alokasiTabungan)}</p>
-                    <p className="mt-1 text-xs font-medium text-slate-400">Tabungan bisnis darurat</p>
+                    <p className="mt-3 text-xl font-black text-amber-900">{formatRupiah(stats.alokasiTabungan)}</p>
+                    <p className="mt-1 text-xs font-semibold text-amber-800">Tabungan bisnis darurat</p>
                   </div>
                 </div>
 
@@ -4658,7 +4664,31 @@ export default function ThriftHatInventoryApp() {
           )}
 
           {(activeView === "dashboard" || activeView === "reports") && (
-            <section className="grid gap-5 2xl:grid-cols-[minmax(0,1fr)_340px]">
+            <>
+              <Panel className="p-4 sm:p-5">
+                <SectionHeader icon={CircleDollarSign} title="Ringkasan Bisnis" description="Gambaran cepat performa toko." />
+                <div className="grid gap-4 sm:grid-cols-3">
+                  <div className="rounded-xl bg-slate-950 p-5 text-white">
+                    <p className="text-sm font-semibold text-slate-300">Nilai modal stok</p>
+                    <p className="mt-2 text-3xl font-black">{formatRupiah(stats.stockValue)}</p>
+                  </div>
+                  <div className="flex items-center justify-between gap-3 rounded-xl border border-slate-200 p-4">
+                    <span className="flex items-center gap-2 text-sm font-semibold text-slate-500">
+                      <Tag size={16} />
+                      Avg profit/item
+                    </span>
+                    <span className="font-black text-slate-950">{formatRupiah(stats.sold ? stats.profit / stats.sold : 0)}</span>
+                  </div>
+                  <div className="flex items-center justify-between gap-3 rounded-xl border border-slate-200 p-4">
+                    <span className="flex items-center gap-2 text-sm font-semibold text-slate-500">
+                      <CircleDollarSign size={16} />
+                      Margin
+                    </span>
+                    <span className="font-black text-slate-950">{stats.revenue ? Math.round((stats.profit / stats.revenue) * 100) : 0}%</span>
+                  </div>
+                </div>
+              </Panel>
+
               <Panel className="p-4 sm:p-5">
                 <SectionHeader
                   icon={BarChart3}
@@ -4817,7 +4847,9 @@ export default function ThriftHatInventoryApp() {
                           <td className="whitespace-nowrap px-4 py-4 text-xs font-bold text-cyan-700">{formatSaleDateTime(hat)}</td>
                           <td className="px-4 py-4 font-medium text-slate-600">{formatRupiah(hat.costPrice)}</td>
                           <td className="px-4 py-4 font-medium text-slate-600">{formatRupiah(hat.soldPrice)}</td>
-                          <td className="px-4 py-4 font-bold text-emerald-700">{formatRupiah((hat.soldPrice || 0) - hat.costPrice)}</td>
+                          <td className={`px-4 py-4 font-bold ${(hat.soldPrice || 0) - hat.costPrice >= 0 ? "text-emerald-700" : "text-red-700"}`}>
+                            {(hat.soldPrice || 0) - hat.costPrice < 0 ? "-" : ""}{formatRupiah(Math.abs((hat.soldPrice || 0) - hat.costPrice))}
+                          </td>
                           <td className="px-4 py-4">
                             <Button variant="secondary" onClick={() => printReceipt(hat)} className="h-9 px-3">
                               <Printer size={15} />
@@ -4851,31 +4883,7 @@ export default function ThriftHatInventoryApp() {
                   </table>
                 </div>
               </Panel>
-
-              <Panel className="p-4 sm:p-5">
-                <SectionHeader icon={CircleDollarSign} title="Ringkasan Bisnis" description="Gambaran cepat performa toko." />
-                <div className="rounded-xl bg-slate-950 p-5 text-white">
-                  <p className="text-sm font-semibold text-slate-300">Nilai modal stok</p>
-                  <p className="mt-2 text-3xl font-black">{formatRupiah(stats.stockValue)}</p>
-                </div>
-                <div className="mt-4 grid gap-3">
-                  <div className="flex items-center justify-between gap-3 rounded-xl border border-slate-200 p-4">
-                    <span className="flex items-center gap-2 text-sm font-semibold text-slate-500">
-                      <Tag size={16} />
-                      Avg profit/item
-                    </span>
-                    <span className="font-black text-slate-950">{formatRupiah(stats.sold ? stats.profit / stats.sold : 0)}</span>
-                  </div>
-                  <div className="flex items-center justify-between gap-3 rounded-xl border border-slate-200 p-4">
-                    <span className="flex items-center gap-2 text-sm font-semibold text-slate-500">
-                      <CircleDollarSign size={16} />
-                      Margin
-                    </span>
-                    <span className="font-black text-slate-950">{stats.revenue ? Math.round((stats.profit / stats.revenue) * 100) : 0}%</span>
-                  </div>
-                </div>
-              </Panel>
-            </section>
+            </>
           )}
         </main>
       </div>
