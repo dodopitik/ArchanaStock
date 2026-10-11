@@ -1326,6 +1326,36 @@ export default function ThriftHatInventoryApp() {
       }),
     [activeReportRange, reportQuery, soldHats]
   );
+  const reportFinanceSummary = useMemo(() => {
+    const periodExpenses = expenses
+      .filter((expense) => activeReportRange.isAll || (expense.date >= activeReportRange.start && expense.date <= activeReportRange.end))
+      .filter((expense) => getExpenseMeta(expense.type).direction === "out")
+      .sort((a, b) => b.date.localeCompare(a.date));
+    const revenue = filteredReportHats.reduce((sum, hat) => sum + (hat.soldPrice || 0), 0);
+    const cost = filteredReportHats.reduce((sum, hat) => sum + hat.costPrice, 0);
+    const grossProfit = revenue - cost;
+    const itemOperationalCost = filteredReportHats.reduce(
+      (sum, hat) => sum + getConfigForDate(hat.soldAt, configHistory).biayaOperasionalPerItem,
+      0,
+    );
+    const profitAfterItemCost = grossProfit - itemOperationalCost;
+    const operationalExpense = periodExpenses
+      .filter((expense) => expense.type === "operational")
+      .reduce((sum, expense) => sum + expense.amount, 0);
+    const ownerDraw = periodExpenses
+      .filter((expense) => expense.type === "owner_draw")
+      .reduce((sum, expense) => sum + expense.amount, 0);
+    const totalExpense = operationalExpense + ownerDraw;
+
+    return {
+      revenue,
+      profitAfterItemCost,
+      operationalExpense,
+      ownerDraw,
+      totalExpense,
+      remaining: profitAfterItemCost - totalExpense,
+    };
+  }, [activeReportRange, configHistory, expenses, filteredReportHats]);
   const bulkItems = useMemo(() => parseBulkItems(bulkText), [bulkText]);
 
   const modalMasukByDate = useMemo(() => {
@@ -2805,7 +2835,20 @@ export default function ThriftHatInventoryApp() {
     const revenue = reportHats.reduce((sum, hat) => sum + (hat.soldPrice || 0), 0);
     const cost = reportHats.reduce((sum, hat) => sum + hat.costPrice, 0);
     const profit = revenue - cost;
-    const averageProfit = reportHats.length ? profit / reportHats.length : 0;
+    const itemOperationalCost = reportHats.reduce(
+      (sum, hat) => sum + getConfigForDate(hat.soldAt, configHistory).biayaOperasionalPerItem,
+      0,
+    );
+    const profitAfterItemCost = profit - itemOperationalCost;
+    const reportExpenses = expenses
+      .filter((expense) => range.isAll || (expense.date >= range.start && expense.date <= range.end))
+      .filter((expense) => getExpenseMeta(expense.type).direction === "out")
+      .sort((a, b) => b.date.localeCompare(a.date));
+    const operationalExpense = reportExpenses.filter((expense) => expense.type === "operational").reduce((sum, expense) => sum + expense.amount, 0);
+    const ownerDraw = reportExpenses.filter((expense) => expense.type === "owner_draw").reduce((sum, expense) => sum + expense.amount, 0);
+    const totalExpense = operationalExpense + ownerDraw;
+    const remaining = profitAfterItemCost - totalExpense;
+    const averageProfit = reportHats.length ? profitAfterItemCost / reportHats.length : 0;
     const logoUrl = `${window.location.origin}${logoSrc}`;
     const reportWindow = window.open("", "_blank", "width=980,height=720");
 
@@ -2830,6 +2873,16 @@ export default function ThriftHatInventoryApp() {
           <td class="money strong${(hat.soldPrice || 0) - hat.costPrice < 0 ? ' negative' : ''}">${(hat.soldPrice || 0) - hat.costPrice < 0 ? '-' : ''}${formatRupiah(Math.abs((hat.soldPrice || 0) - hat.costPrice))}</td>
         </tr>`
       )
+      .join("");
+    const expenseRows = reportExpenses
+      .map((expense, index) => `
+        <tr>
+          <td>${index + 1}</td>
+          <td>${escapeHtml(formatDisplayDate(expense.date))}</td>
+          <td><strong>${escapeHtml(expense.label)}</strong></td>
+          <td>${escapeHtml(getExpenseMeta(expense.type).short)}</td>
+          <td class="money negative strong">-${formatRupiah(expense.amount)}</td>
+        </tr>`)
       .join("");
 
     reportWindow.document.write(`<!doctype html>
@@ -2960,6 +3013,14 @@ export default function ThriftHatInventoryApp() {
       .negative {
         color: #b91c1c !important;
       }
+      .section-title {
+        margin: 22px 0 8px;
+        font-size: 15px;
+      }
+      .result {
+        border: 2px solid #0f172a;
+        background: #f8fafc;
+      }
       .empty {
         border: 1px dashed #cbd5e1;
         border-radius: 8px;
@@ -3016,7 +3077,7 @@ export default function ThriftHatInventoryApp() {
         <div>
           <h1 class="store">${escapeHtml(storeName)}</h1>
           <p class="tagline">Inventory dan Laporan Penjualan Topi Thrift</p>
-          <p class="meta">Laporan resmi toko untuk rekap omzet, modal, profit, dan transaksi SOLD.</p>
+          <p class="meta">Rekap penjualan, pengeluaran, profit, dan sisa bersih berdasarkan periode yang sama.</p>
         </div>
       </header>
 
@@ -3054,9 +3115,31 @@ export default function ThriftHatInventoryApp() {
           : `<div class="empty">Belum ada item SOLD pada periode laporan ini.</div>`
       }
 
+      <h3 class="section-title">Riwayat Pengeluaran Periode</h3>
+      ${reportExpenses.length
+        ? `<table>
+            <thead><tr><th>No</th><th>Tanggal</th><th>Keterangan</th><th>Jenis</th><th>Jumlah</th></tr></thead>
+            <tbody>${expenseRows}</tbody>
+          </table>`
+        : `<div class="empty">Tidak ada pengeluaran pada periode laporan ini.</div>`}
+
+      <h3 class="section-title">Hasil Keuangan Periode</h3>
+      <section class="summary">
+        <div class="card"><span>Profit Kotor</span><strong>${formatRupiah(profit)}</strong></div>
+        <div class="card"><span>Ongkos Otomatis Item</span><strong>-${formatRupiah(itemOperationalCost)}</strong></div>
+        <div class="card"><span>Profit Setelah Ongkos Item</span><strong>${formatRupiah(profitAfterItemCost)}</strong></div>
+        <div class="card"><span>Pengeluaran Manual</span><strong>-${formatRupiah(totalExpense)}</strong></div>
+      </section>
+      <section class="summary">
+        <div class="card"><span>Operasional Manual</span><strong>${formatRupiah(operationalExpense)}</strong></div>
+        <div class="card"><span>Owner Draw</span><strong>${formatRupiah(ownerDraw)}</strong></div>
+        <div class="card result"><span>Sisa Bersih Periode</span><strong class="${remaining < 0 ? "negative" : "strong"}">${remaining < 0 ? "-" : ""}${formatRupiah(Math.abs(remaining))}</strong></div>
+        <div class="card"><span>Margin Bersih</span><strong>${revenue ? ((remaining / revenue) * 100).toFixed(1) : "0.0"}%</strong></div>
+      </section>
+
       <section class="summary" style="margin-top: 18px;">
         <div class="card"><span>Avg Profit/Item</span><strong>${formatRupiah(averageProfit)}</strong></div>
-        <div class="card"><span>Margin</span><strong>${revenue ? Math.round((profit / revenue) * 100) : 0}%</strong></div>
+        <div class="card"><span>Total Pengeluaran</span><strong>${formatRupiah(totalExpense)}</strong></div>
         <div class="card"><span>Periode Mulai</span><strong>${escapeHtml(range.isAll ? "-" : formatDisplayDate(range.start))}</strong></div>
         <div class="card"><span>Periode Akhir</span><strong>${escapeHtml(range.isAll ? "-" : formatDisplayDate(range.end))}</strong></div>
       </section>
@@ -4764,6 +4847,29 @@ export default function ThriftHatInventoryApp() {
                     </div>
                   </label>
 
+                </div>
+
+                <div className="mb-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+                  <div className="rounded-xl border border-slate-200 bg-white p-4">
+                    <p className="text-xs font-bold uppercase text-slate-400">Omzet Periode</p>
+                    <p className="mt-2 text-xl font-black text-slate-950">{formatRupiah(reportFinanceSummary.revenue)}</p>
+                  </div>
+                  <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-4">
+                    <p className="text-xs font-bold uppercase text-emerald-700">Profit Setelah Ongkos Item</p>
+                    <p className="mt-2 text-xl font-black text-emerald-800">{formatRupiah(reportFinanceSummary.profitAfterItemCost)}</p>
+                  </div>
+                  <div className="rounded-xl border border-red-200 bg-red-50 p-4">
+                    <p className="text-xs font-bold uppercase text-red-700">Pengeluaran Periode</p>
+                    <p className="mt-2 text-xl font-black text-red-800">-{formatRupiah(reportFinanceSummary.totalExpense)}</p>
+                    <p className="mt-1 text-xs font-medium text-red-700">Operasional {formatRupiah(reportFinanceSummary.operationalExpense)} · Owner {formatRupiah(reportFinanceSummary.ownerDraw)}</p>
+                  </div>
+                  <div className={`rounded-xl border p-4 ${reportFinanceSummary.remaining >= 0 ? "border-cyan-200 bg-cyan-50" : "border-red-300 bg-red-50"}`}>
+                    <p className={`text-xs font-bold uppercase ${reportFinanceSummary.remaining >= 0 ? "text-cyan-700" : "text-red-700"}`}>Sisa Bersih Periode</p>
+                    <p className={`mt-2 text-xl font-black ${reportFinanceSummary.remaining >= 0 ? "text-cyan-900" : "text-red-900"}`}>
+                      {reportFinanceSummary.remaining < 0 ? "-" : ""}{formatRupiah(Math.abs(reportFinanceSummary.remaining))}
+                    </p>
+                    <p className="mt-1 text-xs font-medium text-slate-500">Profit setelah ongkos − pengeluaran</p>
+                  </div>
                 </div>
 
                 <div className="grid gap-3 lg:hidden">
